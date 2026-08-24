@@ -1,0 +1,12 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.coverage
+
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+AGENTS.md
+*.code-workspace
