@@ -5,6 +5,8 @@ description = "Async HTTP survey parsing and submission toolkit"
 authors = [
     { name = "HUNGRY_M0", email = "mail@hungrym0.com" },
 ]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11"
 keywords = ["survey", "questionnaire", "async", "http"]
