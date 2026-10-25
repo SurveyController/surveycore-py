@@ -1,6 +1,6 @@
 [project]
 name = "surveycore-py"
-version = "0.1.0"
+version = "0.1.1"
 description = "Async HTTP survey parsing and submission toolkit"
 authors = [
     { name = "HUNGRY_M0", email = "mail@hungrym0.com" },
