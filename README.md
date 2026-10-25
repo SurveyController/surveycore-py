@@ -7,11 +7,11 @@
 
 [![CI](https://github.com/SurveyController/surveycore-py/actions/workflows/ci.yml/badge.svg)](https://github.com/SurveyController/surveycore-py/actions/workflows/ci.yml)
 
-纯 Python 异步问卷 HTTP 提交工具包，支持问卷星、腾讯问卷、 Credamo 见数三大平台
+纯 HTTP 异步提交问卷的 Python 工具包，支持问卷星、腾讯问卷、 Credamo 见数三大平台
 
 > [!CAUTION]
 >
-> **本项目仅可用于已授权问卷的学习与测试。严禁用于污染第三方问卷数据！**
+> **本项目仅可用于已授权问卷的学习与测试。严禁用于污染他人问卷数据！**
 
 ## 支持平台
 
@@ -20,11 +20,11 @@
 - [x] Credamo 见数
 - [ ] 其他平台（欢迎贡献）
 
-## 使用方法
+## 准备
 
 ### 环境要求
 
-- Python 3.11+ （推荐 Python 3.13.15）
+- Python 3.11+ （推荐 Python 3.13.17）
 
 ### 安装
 
@@ -36,9 +36,13 @@ uv add surveycore-py
 
 或
 
+![pip](https://img.shields.io/badge/managed%20with-pip-3776AB?logo=pypi&logoColor=white)
+
 ```bash
 python -m pip install surveycore-py
 ```
+
+## 示例
 
 ### 解析问卷
 
@@ -95,20 +99,25 @@ asyncio.run(main())
 
 | 接口 | 作用 |
 |---|---|
-| `SurveyClient.parse()` | 识别平台并解析问卷结构。 |
-| `SurveyClient.submit()` | 提交一次问卷尝试。 |
-| `SurveyClient.run()` | 按指定次数和并发量调度提交。 |
-| `RunConfig` | 定义问卷、题目策略和调度参数。 |
-| `serialize_config()` / `deserialize_config()` | 在配置对象与字典之间转换。 |
-| `dumps_config()` / `loads_config()` | 在配置对象与 JSON 之间转换。 |
+| `SurveyClient.parse()` | 识别平台并解析问卷结构 |
+| `SurveyClient.submit()` | 提交一次问卷尝试 |
+| `SurveyClient.run()` | 按 `target` 和 `concurrency` 调度提交 |
+| `AnswerGenerator` | 定义可选的同步或异步答案生成器协议 |
+| `SurveyDefinition` / `SurveyQuestion` | 表示解析后的问卷和题目结构 |
+| `QuestionConfig` / `RunConfig` | 定义题目策略和调度参数 |
+| `SubmissionRequest` / `SubmissionResult` | 表示单次提交请求和结果 |
+| `serialize_config()` / `deserialize_config()` | 在配置对象与字典之间转换 |
+| `dumps_config()` / `loads_config()` | 在配置对象与 JSON 之间转换 |
+| `surveycore.__version__` | 返回已安装发行版版本 |
 
 公开异常包括：
 
-- `UnsupportedSurveyError`：链接或平台不受支持。
-- `SurveyUnavailableError`：问卷未开放、暂停或到期。
-- `SurveyParseError`：问卷解析失败。
-- `ConfigError`：配置无效或 schema 不兼容。
-- `SubmissionError`：提交阶段错误。
+- `SurveyCoreError`：所有公开异常的基类
+- `UnsupportedSurveyError`：链接或平台不受支持
+- `SurveyUnavailableError`：问卷未开放、暂停或到期
+- `SurveyParseError`：问卷解析失败
+- `ConfigError`：配置无效或 schema 不兼容
+- `SubmissionError`：已导出的提交异常类型；`SurveyClient.submit()` 当前将单次提交异常写入 `SubmissionResult.error`
 
 ## GPL-3.0 License
 
