@@ -60,6 +60,7 @@ class TestTencentParser:
 
         with pytest.raises(RuntimeError, match="无法解析的响应：meta"):
             await qq_parser._request_qq_api("123", "meta", hash_value="hash", headers={})
+        assert bad_json_aget.await_args is not None
         assert bad_json_aget.await_args.kwargs.get("proxies") == {}
 
         non_dict_response = _FakeHttpResponse(json_payload=["bad"])
@@ -68,6 +69,7 @@ class TestTencentParser:
 
         with pytest.raises(RuntimeError, match="非对象响应：questions"):
             await qq_parser._request_qq_api("123", "questions", hash_value="hash", headers={})
+        assert non_dict_aget.await_args is not None
         assert non_dict_aget.await_args.kwargs.get("proxies") == {}
 
     @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from surveycore.providers.common import (
     SURVEY_PROVIDER_CREDAMO,
     SURVEY_PROVIDER_QQ,
@@ -63,11 +65,14 @@ class TestProviderCommon:
         assert result["unsupported_reason"] == "暂不支持"
 
     def test_ensure_question_provider_fields_returns_empty_dict_for_non_mapping(self) -> None:
-        assert ensure_question_provider_fields("bad") == {}
+        assert ensure_question_provider_fields(cast(dict[str, object], "bad")) == {}
 
     def test_ensure_questions_provider_fields_filters_invalid_items(self) -> None:
         result = ensure_questions_provider_fields(
-            [{"provider": "qq", "provider_question_id": " q1 "}, "bad", {"provider": "nope"}],
+            cast(
+                list[dict[str, object]],
+                [{"provider": "qq", "provider_question_id": " q1 "}, "bad", {"provider": "nope"}],
+            ),
             default_provider=SURVEY_PROVIDER_WJX,
         )
         assert len(result) == 2

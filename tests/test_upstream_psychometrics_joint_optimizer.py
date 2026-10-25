@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import patch
 
 from surveycore.core.psychometrics.joint_optimizer import (
@@ -7,6 +8,7 @@ from surveycore.core.psychometrics.joint_optimizer import (
     build_psychometric_blueprint,
 )
 from surveycore.core.task import ExecutionConfig
+from surveycore.providers.contracts import SurveyQuestionMeta
 
 
 class TestJointOptimizer:
@@ -15,7 +17,10 @@ class TestJointOptimizer:
             question_config_index_map={1: ("scale", 0), 2: ("dropdown", 0), 3: ("matrix", 0)},
             question_dimension_map={1: "mood", 2: "career", 3: "mood"},
             question_psycho_bias_map={1: "left", 2: "custom", 3: ["right", "bad-value"]},
-            questions_metadata={1: {"options": 5}, 2: {"options": 4}, 3: {"options": 5, "rows": 2}},
+            questions_metadata=cast(
+                dict[int, SurveyQuestionMeta],
+                {1: {"options": 5}, 2: {"options": 4}, 3: {"options": 5, "rows": 2}},
+            ),
             scale_prob=[-1],
             droplist_prob=[[0, 0, 0, 1]],
             matrix_prob=[[0, 0, 1, 3, 9], -1],
@@ -39,7 +44,9 @@ class TestJointOptimizer:
             question_dimension_map={1: "mood", 2: "mood"},
             question_psycho_bias_map={1: "custom", 2: "custom"},
             question_ordinal_score_map={1: [4, 3, 2, 1, 0]},
-            questions_metadata={1: {"options": 5}, 2: {"options": 2}},
+            questions_metadata=cast(
+                dict[int, SurveyQuestionMeta], {1: {"options": 5}, 2: {"options": 2}}
+            ),
             single_prob=[[1, 1, 1, 1, 1], [1, 1]],
         )
 
@@ -65,12 +72,12 @@ class TestJointOptimizer:
             },
             question_dimension_map={1: "stress", 2: "stress", 3: "stress", 4: "single-item"},
             question_psycho_bias_map={1: "custom", 2: "custom", 3: "custom", 4: "custom"},
-            questions_metadata={
+            questions_metadata=cast(dict[int, SurveyQuestionMeta], {
                 1: {"options": 5},
                 2: {"options": 5},
                 3: {"options": 5},
                 4: {"options": 5},
-            },
+            }),
             scale_prob=[[1, 0, 0, 0, 0], [1, 0, 0, 0, 0], [0, 0, 0, 0, 1], [0, 1, 0, 0, 0]],
         )
         with patch("surveycore.core.psychometrics.joint_optimizer.randn", return_value=0.0):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -57,7 +58,7 @@ async def test_fill_survey_uses_provider_run_context_and_selected_adapter() -> N
         del thread_name
         status_updates.append((status_text, bool(running)))
 
-    state.update_thread_status = _capture_update_thread_status.__get__(state, ExecutionState)
+    state.update_thread_status = cast(Any, _capture_update_thread_status.__get__(state, ExecutionState))
     adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_WJX]
 
     @contextmanager
@@ -80,6 +81,7 @@ async def test_fill_survey_uses_provider_run_context_and_selected_adapter() -> N
 
     assert result is True
     assert status_updates == [("识别题目", True)]
+    assert fill_mock.await_args is not None
     assert fill_mock.await_args.kwargs["psycho_plan"] == "resolved-plan"
 
 
@@ -109,6 +111,7 @@ async def test_fill_survey_http_routes_credamo_adapter() -> None:
         )
 
     assert result is True
+    assert fill_mock.await_args is not None
     assert fill_mock.await_args.kwargs["psycho_plan"] == "resolved-plan"
     assert fill_mock.await_args.kwargs["proxy_address"] == "http://1.1.1.1:80"
     assert fill_mock.await_args.kwargs["user_agent"] == "UA"

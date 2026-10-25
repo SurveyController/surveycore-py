@@ -366,7 +366,12 @@ def _attach_display_condition_metadata(questions_info: List[Dict[str, Any]]) -> 
                 if not isinstance(existing, dict):
                     continue
                 try:
-                    existing_target = int(existing.get("target_question_num") or 0)
+                    raw_existing_target = existing.get("target_question_num")
+                    existing_target = (
+                        int(raw_existing_target)
+                        if isinstance(raw_existing_target, (str, int, float))
+                        else 0
+                    )
                 except Exception:
                     existing_target = 0
                 existing_indices = existing.get("condition_option_indices")

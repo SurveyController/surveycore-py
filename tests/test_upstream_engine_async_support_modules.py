@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import Future
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from surveycore.core.engine.async_events import AsyncRunContext, ThreadEventProxy
 from surveycore.core.engine.async_status_bus import AsyncStatusBus
+from surveycore.core.task import ExecutionState
 
 
 class TestAsyncStatusBus:
@@ -83,7 +85,7 @@ class TestAsyncRunContext:
         pause_event = asyncio.Event()
         pause_event.set()
         ctx = AsyncRunContext(
-            state=SimpleNamespace(),
+            state=ExecutionState(),
             stop_event=stop_event,
             pause_event=pause_event,
         )
@@ -99,7 +101,7 @@ class TestAsyncRunContext:
         captured: list[dict[str, object]] = []
         payload = {"value": 1}
         ctx = AsyncRunContext(
-            state=SimpleNamespace(),
+            state=ExecutionState(),
             stop_event=asyncio.Event(),
             pause_event=asyncio.Event(),
             status_sink=lambda event: captured.append(event),
@@ -116,7 +118,7 @@ class TestAsyncRunContext:
         pause_event = asyncio.Event()
         pause_event.set()
         ctx = AsyncRunContext(
-            state=SimpleNamespace(),
+            state=ExecutionState(),
             stop_event=stop_event,
             pause_event=pause_event,
         )
@@ -141,7 +143,7 @@ class TestThreadEventProxy:
                 calls.append(callback)
 
         event = asyncio.Event()
-        proxy = ThreadEventProxy(event, loop=_Loop())
+        proxy = ThreadEventProxy(event, loop=cast(asyncio.AbstractEventLoop, _Loop()))
 
         proxy.set()
         proxy.clear()
@@ -156,14 +158,14 @@ class TestThreadEventProxy:
             def call_soon_threadsafe(self, callback) -> None:
                 raise AssertionError(f"unexpected callback: {callback}")
 
-        proxy = ThreadEventProxy(asyncio.Event(), loop=_Loop())
+        proxy = ThreadEventProxy(asyncio.Event(), loop=cast(asyncio.AbstractEventLoop, _Loop()))
         proxy.set()
         proxy.clear()
 
     def test_wait_returns_immediately_when_event_already_set(self) -> None:
         event = asyncio.Event()
         event.set()
-        proxy = ThreadEventProxy(event, loop=SimpleNamespace())
+        proxy = ThreadEventProxy(event, loop=cast(asyncio.AbstractEventLoop, SimpleNamespace()))
 
         assert proxy.wait(timeout=0.1) is True
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from surveycore.core.task import ExecutionConfig, ExecutionState
+from surveycore.core.user_agent import UserAgentProfile
 from surveycore.credamo.provider import answering_builders as credamo_builders
 from surveycore.credamo.provider import http_runtime as credamo_http
 from surveycore.providers.answering import AnswerAction
@@ -154,7 +156,7 @@ async def test_wjx_submit_timing_uses_configured_answer_duration(monkeypatch) ->
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     page_html = """
     <html>
       <body>
@@ -207,7 +209,7 @@ async def test_wjx_submit_body_uses_extracted_scene_id(monkeypatch) -> None:
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         return """
@@ -258,8 +260,8 @@ def test_qq_question_answer_builders_cover_choice_text_and_matrix() -> None:
         AnswerAction(question_id="q-16-6ef8", kind="matrix", matrix_indices=(0,)),
     )
 
-    assert choice["options"][1]["checked"] == 1
-    assert text["text"] == "hello"
+    assert cast(dict[str, Any], choice)["options"][1]["checked"] == 1
+    assert cast(dict[str, Any], text)["text"] == "hello"
     assert matrix == [
         {"id": "q-16-6ef8_g-101-f3a5_o-101-1d22", "type": "matrix_radio", "answer": "on"}
     ]
@@ -605,7 +607,7 @@ def test_credamo_forced_choice_prefers_text_when_api_choice_order_changes() -> N
 
 @pytest.mark.asyncio
 async def test_credamo_save_keeps_encoded_answer_token_verbatim() -> None:
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     class FakeSession:
         async def post(self, url, **kwargs):
@@ -614,7 +616,7 @@ async def test_credamo_save_keeps_encoded_answer_token_verbatim() -> None:
             return _FakeResponse(payload={"success": True, "data": {"answerId": 1}})
 
     await credamo_http._save_answers(
-        FakeSession(),
+        cast(credamo_http._CredamoHttpSession, FakeSession()),
         origin="https://www.credamo.com",
         short_url="A73QR3ano",
         init_data=credamo_http._CredamoAnswerInit("abc%2Bdef%2Fghi%3D", 1710000000000, "device-id"),
@@ -637,8 +639,8 @@ async def test_wjx_http_runtime_uses_proxy_and_posts_submitdata(monkeypatch) -> 
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
-    load_kwargs: dict[str, object] = {}
+    captured: dict[str, Any] = {}
+    load_kwargs: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         load_kwargs.update(_kwargs)
@@ -683,7 +685,7 @@ async def test_wjx_http_runtime_uses_wechat_channel_params_for_wechat_profile(mo
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         return "<html><body><input type='hidden' value='2026/5/30 1:23:18' id='starttime' name='starttime' /></body></html>"
@@ -705,8 +707,11 @@ async def test_wjx_http_runtime_uses_wechat_channel_params_for_wechat_profile(mo
         config,
         state,
         user_agent="Mozilla/5.0 MicroMessenger/8.0.43 WeChat/arm64",
-        user_agent_profile=SimpleNamespace(
-            category="wechat", ua="Mozilla/5.0 MicroMessenger/8.0.43 WeChat/arm64"
+        user_agent_profile=UserAgentProfile(
+            category="wechat",
+            preset_key="wechat",
+            ua="Mozilla/5.0 MicroMessenger/8.0.43 WeChat/arm64",
+            label="微信",
         ),
     )
 
@@ -731,7 +736,7 @@ async def test_wjx_http_runtime_uses_default_pc_ua_when_user_agent_is_not_explic
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         return None
@@ -773,7 +778,7 @@ async def test_wjx_http_runtime_uses_mobile_channel_for_mobile_profile(monkeypat
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         return None
@@ -795,8 +800,11 @@ async def test_wjx_http_runtime_uses_mobile_channel_for_mobile_profile(monkeypat
         config,
         state,
         user_agent="Mozilla/5.0 Chrome/121.0.0.0 Mobile Safari/537.36",
-        user_agent_profile=SimpleNamespace(
-            category="mobile", ua="Mozilla/5.0 Chrome/121.0.0.0 Mobile Safari/537.36"
+        user_agent_profile=UserAgentProfile(
+            category="mobile",
+            preset_key="mobile",
+            ua="Mozilla/5.0 Chrome/121.0.0.0 Mobile Safari/537.36",
+            label="手机",
         ),
     )
 
@@ -816,7 +824,7 @@ async def test_wjx_http_runtime_uses_pc_channel_for_pc_profile(monkeypatch) -> N
         1: SurveyQuestionMeta(num=1, title="Q1", type_code="3", options=2, option_texts=["A", "B"]),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_load(*_args, **_kwargs):
         return None
@@ -838,9 +846,11 @@ async def test_wjx_http_runtime_uses_pc_channel_for_pc_profile(monkeypatch) -> N
         config,
         state,
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36",
-        user_agent_profile=SimpleNamespace(
+        user_agent_profile=UserAgentProfile(
             category="pc",
+            preset_key="pc",
             ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36",
+            label="桌面",
         ),
     )
 
@@ -1315,7 +1325,7 @@ async def test_qq_http_runtime_submits_only_visible_questions_grouped_by_page(mo
         ),
     }
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     session_checks: list[str] = []
 
     async def fake_fetch(*_args, **_kwargs):
@@ -1483,7 +1493,7 @@ async def test_qq_http_runtime_skips_description_metadata(monkeypatch) -> None:
     }
     state = ExecutionState(config=config)
     built_questions: list[int] = []
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_fetch(*_args, **_kwargs):
         return (
@@ -1554,7 +1564,7 @@ async def test_qq_http_runtime_uses_latest_dynamic_ids_for_score_questions(monke
     config.question_config_index_map = {8: ("score", 0)}
     config.scale_prob = [[0.0, 0.0, 0.0, 1.0] + [0.0] * 7]
     state = ExecutionState(config=config)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_fetch(*_args, **_kwargs):
         return (
@@ -1959,8 +1969,9 @@ def test_qq_choice_payload_includes_option_fill_blanks() -> None:
         action,
     )
 
-    assert answer["blanks"] == [{"id": "fillblank-1", "text": "补充信息"}]
-    assert answer["options"][1]["checked"] == 1
+    answer_dict = cast(dict[str, Any], answer)
+    assert answer_dict["blanks"] == [{"id": "fillblank-1", "text": "补充信息"}]
+    assert answer_dict["options"][1]["checked"] == 1
 
 
 @pytest.mark.asyncio

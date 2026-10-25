@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -17,12 +18,13 @@ from surveycore.core.questions.schema import (
     GLOBAL_RELIABILITY_DIMENSION,
     QuestionEntry,
 )
+from surveycore.core.task import ExecutionConfig
 from surveycore.providers.contracts import SurveyQuestionMeta
 
 
 class TestNormalizationRuntime:
     def test_configure_probabilities_maps_all_supported_question_types(self) -> None:
-        ctx = SimpleNamespace()
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
         entries = [
             QuestionEntry(
                 "single",
@@ -50,7 +52,7 @@ class TestNormalizationRuntime:
                 option_count=3,
                 question_num=4,
                 dimension="态度",
-                psycho_bias=["positive", "negative"],
+                psycho_bias=cast(Any, ["positive", "negative"]),
             ),
             QuestionEntry("scale", [1, 3], option_count=2, question_num=5, psycho_bias="negative"),
             QuestionEntry("score", [2, 2], option_count=2, question_num=6),
@@ -116,7 +118,7 @@ class TestNormalizationRuntime:
         assert ctx.location_parts[12] == ["北京", "北京", "东城区"]
 
     def test_configure_probabilities_builds_provider_question_mapping(self) -> None:
-        ctx = SimpleNamespace()
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
         entries = [
             QuestionEntry(
                 "scale",
@@ -149,7 +151,7 @@ class TestNormalizationRuntime:
     def test_configure_probabilities_assigns_global_reliability_dimension_when_none_explicit(
         self,
     ) -> None:
-        ctx = SimpleNamespace()
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
         entries = [
             QuestionEntry("dropdown", [1, 1], option_count=2, question_num=1),
             QuestionEntry("scale", [1, 1], option_count=2, question_num=2),
@@ -163,7 +165,7 @@ class TestNormalizationRuntime:
         }
 
     def test_configure_probabilities_adds_only_ordinal_single_to_reliability(self) -> None:
-        ctx = SimpleNamespace(
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace(
             questions_metadata={
                 1: SurveyQuestionMeta(
                     num=1,
@@ -180,7 +182,7 @@ class TestNormalizationRuntime:
                     option_texts=["男", "女"],
                 ),
             }
-        )
+        ))
         entries = [
             QuestionEntry("single", [1, 1, 1, 1, 1], option_count=5, question_num=1),
             QuestionEntry("single", [1, 1], option_count=2, question_num=2),
@@ -192,7 +194,7 @@ class TestNormalizationRuntime:
         assert ctx.question_ordinal_score_map == {1: [4, 3, 2, 1, 0]}
 
     def test_configure_probabilities_adds_obvious_attitude_single_to_reliability(self) -> None:
-        ctx = SimpleNamespace(
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace(
             questions_metadata={
                 4: SurveyQuestionMeta(
                     num=4,
@@ -202,7 +204,7 @@ class TestNormalizationRuntime:
                     option_texts=["非常不同意", "比较不同意", "没意见", "比较同意", "非常同意"],
                 ),
             }
-        )
+        ))
         entries = [
             QuestionEntry("single", [1, 1, 1, 1, 1], option_count=5, question_num=4),
         ]
@@ -268,7 +270,9 @@ class TestNormalizationRuntime:
         self, entry: QuestionEntry, message: str
     ) -> None:
         with pytest.raises(ValueError, match=message):
-            configure_probabilities([entry], SimpleNamespace())
+            configure_probabilities(
+                [entry], cast(ExecutionConfig, SimpleNamespace())
+            )
 
     @pytest.mark.parametrize(
         ("mode", "expected"),
@@ -281,7 +285,7 @@ class TestNormalizationRuntime:
     def test_text_random_modes_override_ai_and_candidate_text(
         self, mode: str, expected: str
     ) -> None:
-        ctx = SimpleNamespace()
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
         configure_probabilities(
             [
                 QuestionEntry(
@@ -300,7 +304,7 @@ class TestNormalizationRuntime:
         assert ctx.text_ai_flags == [False]
 
     def test_text_random_integer_builds_runtime_token(self) -> None:
-        ctx = SimpleNamespace()
+        ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
 
         configure_probabilities(
             [

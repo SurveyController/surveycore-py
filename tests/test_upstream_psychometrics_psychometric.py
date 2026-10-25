@@ -58,7 +58,11 @@ class TestPsychometricPlan:
         assert plan.get_choice(1) == 3
         assert plan.get_choice(2) == 3
         assert plan.get_choice(3) == 1
-        assert plan.get_choice(1) > plan.get_choice(3)
+        choice_one = plan.get_choice(1)
+        choice_three = plan.get_choice(3)
+        assert choice_one is not None
+        assert choice_three is not None
+        assert choice_one > choice_three
 
     def test_build_dimension_psychometric_plan_skips_small_dimension_and_exposes_choices(
         self,

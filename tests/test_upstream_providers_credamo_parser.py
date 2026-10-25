@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -11,6 +12,7 @@ from surveycore.core.questions.normalization import configure_probabilities
 from surveycore.core.questions.schema import QuestionEntry
 from surveycore.credamo.provider import parser
 from surveycore.network.http import bind
+from surveycore.providers.contracts import SurveyQuestionMeta
 
 
 class TestCredamoParser:
@@ -408,7 +410,9 @@ class TestCredamoParser:
 
     def test_default_builder_locks_credamo_force_select_question(self) -> None:
         entries = build_default_question_entries(
-            [
+            cast(
+                list[SurveyQuestionMeta],
+                [
                 {
                     "num": 7,
                     "title": "本题检测是否认真作答，请选 非常不满意",
@@ -421,7 +425,8 @@ class TestCredamoParser:
                     "forced_option_index": 0,
                     "forced_option_text": "非常不满意",
                 }
-            ],
+                ],
+            ),
             survey_url="https://www.credamo.com/answer.html#/s/demo",
         )
         assert len(entries) == 1
@@ -433,7 +438,9 @@ class TestCredamoParser:
 
     def test_default_builder_locks_credamo_forced_text_question(self) -> None:
         entries = build_default_question_entries(
-            [
+            cast(
+                list[SurveyQuestionMeta],
+                [
                 {
                     "num": 10,
                     "title": "本题检测是否认真作答，请输入：你好",
@@ -446,7 +453,8 @@ class TestCredamoParser:
                     "is_text_like": True,
                     "text_inputs": 1,
                 }
-            ],
+                ],
+            ),
             survey_url="https://www.credamo.com/answer.html#/s/demo",
         )
         assert len(entries) == 1
@@ -516,5 +524,5 @@ class TestCredamoParser:
             survey_provider="credamo",
         )
         ctx = SimpleNamespace()
-        configure_probabilities([entry], ctx)
+        configure_probabilities([entry], cast(Any, ctx))
         assert ctx.question_config_index_map[6] == ("order", -1)

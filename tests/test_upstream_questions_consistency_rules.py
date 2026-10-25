@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from surveycore.core.persona.context import record_answer, reset_context
 from surveycore.core.questions import consistency
 from surveycore.providers.contracts import SurveyQuestionMeta
@@ -109,7 +111,9 @@ class TestConsistencyRules:
             ]
         )
 
-        assert consistency.apply_single_like_consistency([1, -2, "bad"], 2) == [1.0, 0.0, 0.0]
+        assert consistency.apply_single_like_consistency(
+            cast(Any, [1, -2, "bad"]), 2
+        ) == [1.0, 0.0, 0.0]
 
     def test_matrix_row_consistency_uses_row_answers_and_target_row(self) -> None:
         reset_context()

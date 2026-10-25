@@ -113,6 +113,7 @@ class TestWjxHtmlParserMatrix:
         """
         soup = BeautifulSoup(html, "html.parser")
         question_div = soup.find(id="div8")
+        assert question_div is not None
 
         assert html_parser_matrix._extract_slider_range(question_div, 8) == (1.0, 5.0, 0.5)
         assert html_parser_matrix._question_div_looks_like_slider_matrix(question_div)

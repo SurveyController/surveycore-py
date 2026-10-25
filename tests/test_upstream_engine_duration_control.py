@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -55,7 +56,7 @@ class _Driver:
 class TestDurationControl:
     def test_has_configured_answer_duration_accepts_any_positive_bound(self) -> None:
         assert not duration_control.has_configured_answer_duration((0, 0))
-        assert not duration_control.has_configured_answer_duration(("bad",))
+        assert not duration_control.has_configured_answer_duration(cast(tuple[int, int], ("bad",)))
         assert duration_control.has_configured_answer_duration((0, 5))
         assert duration_control.has_configured_answer_duration((3, 0))
 

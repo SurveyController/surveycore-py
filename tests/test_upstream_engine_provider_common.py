@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 from surveycore.core.engine.provider_common import (
@@ -10,7 +11,8 @@ from surveycore.core.engine.provider_common import (
     provider_run_context,
 )
 from surveycore.core.questions.config import GLOBAL_RELIABILITY_DIMENSION
-from surveycore.core.task import ExecutionConfig
+from surveycore.core.task import ExecutionConfig, ExecutionState
+from surveycore.providers.contracts import SurveyQuestionMeta
 
 
 class _FakeBlueprintItem:
@@ -85,7 +87,10 @@ class TestProviderCommon:
         build_mock.assert_called_once_with(config)
 
     def test_provider_run_context_uses_explicit_plan_and_resets_persona(self) -> None:
-        config = ExecutionConfig(answer_rules=[{"num": 1}], questions_metadata={1: {"title": "Q1"}})
+        config = ExecutionConfig(
+            answer_rules=[{"num": 1}],
+            questions_metadata={1: SurveyQuestionMeta(num=1, title="Q1")},
+        )
         with (
             patch(
                 "surveycore.core.engine.provider_common.generate_persona",
@@ -106,12 +111,15 @@ class TestProviderCommon:
         set_persona_mock.assert_called_once_with({"name": "p"})
         reset_context_mock.assert_called_once()
         reset_tendency_mock.assert_called_once()
-        reset_consistency_mock.assert_called_once_with(config.answer_rules, [{"title": "Q1"}])
+        reset_consistency_mock.assert_called_once_with(config.answer_rules, list(config.questions_metadata.values()))
         reset_persona_mock.assert_called_once()
 
     def test_provider_run_context_combines_joint_sample_plan_with_fallback(self) -> None:
         config = ExecutionConfig(psycho_target_alpha=0.93)
-        state = SimpleNamespace(peek_reserved_joint_sample=lambda thread_name: 1)
+        state = cast(
+            ExecutionState,
+            SimpleNamespace(peek_reserved_joint_sample=lambda thread_name: 1),
+        )
         joint_plan = SimpleNamespace(
             build_sample_plan=lambda sample_index: SimpleNamespace(
                 diagnostics_by_dimension={}, choices={1: 2}, plans={"A": object()}, items=[1, 2]
