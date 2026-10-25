@@ -2,9 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - "**"
-  pull_request:
 
 permissions:
   contents: read
@@ -20,26 +17,6 @@ jobs:
           - os: Linux
             arch: amd64
             runner: ubuntu-latest
-            python-version: "3.13.17"
-          - os: Linux
-            arch: arm64
-            runner: ubuntu-24.04-arm
-            python-version: "3.13.17"
-          - os: macOS
-            arch: amd64
-            runner: macos-15-intel
-            python-version: "3.13.17"
-          - os: macOS
-            arch: arm64
-            runner: macos-latest
-            python-version: "3.13.17"
-          - os: Windows
-            arch: amd64
-            runner: windows-latest
-            python-version: "3.13.17"
-          - os: Windows
-            arch: arm64
-            runner: windows-11-arm
             python-version: "3.13.17"
           # Keep the minimum supported interpreter in the CI gate.
           - os: Linux
