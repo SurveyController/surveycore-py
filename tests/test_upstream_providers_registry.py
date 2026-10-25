@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
+# ty: ignore[unresolved-attribute]
 from __future__ import annotations
 
 from contextlib import contextmanager

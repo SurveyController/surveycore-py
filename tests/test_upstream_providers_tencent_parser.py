@@ -1,4 +1,4 @@
-# pyright: reportOptionalMemberAccess=false
+# ty: ignore[unresolved-attribute]
 from __future__ import annotations
 
 from types import SimpleNamespace

@@ -1,4 +1,4 @@
-# pyright: reportArgumentType=false
+# ty: ignore[invalid-argument-type]
 from __future__ import annotations
 
 from surveycore.core.persona.context import record_answer, reset_context
