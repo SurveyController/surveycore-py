@@ -369,8 +369,12 @@ def _attach_display_condition_metadata(questions_info: List[Dict[str, Any]]) -> 
                     existing_target = int(existing.get("target_question_num") or 0)
                 except Exception:
                     existing_target = 0
-                existing_indices = existing.get("condition_option_indices") or []
-                if existing_target == target_question_num and list(existing_indices) == normalized_indices:
+                existing_indices = existing.get("condition_option_indices")
+                if (
+                    existing_target == target_question_num
+                    and isinstance(existing_indices, list)
+                    and existing_indices == normalized_indices
+                ):
                     duplicate = True
                     break
             if duplicate:

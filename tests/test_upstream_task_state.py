@@ -95,4 +95,4 @@ class TestExecutionState:
     def test_setting_config_field_on_state_raises_clear_error(self) -> None:
         state = ExecutionState(config=ExecutionConfig())
         with pytest.raises(AttributeError, match="state.config.target_num"):
-            state.target_num = 10  # type: ignore[attr-defined]
+            state.target_num = 10

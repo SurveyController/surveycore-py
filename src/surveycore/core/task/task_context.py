@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, Union
 
 from surveycore.core.reverse_fill import ReverseFillRuntimeState, ReverseFillSpec
 from surveycore.core.task.distribution_state import DistributionRuntimeMixin
@@ -40,6 +40,8 @@ class ExecutionConfig:
     droplist_option_fill_texts: List[Optional[List[Optional[str]]]] = field(default_factory=list)
     multiple_option_fill_texts: List[Optional[List[Optional[str]]]] = field(default_factory=list)
     answer_rules: List[Dict[str, Any]] = field(default_factory=list)
+    answer_generator: Optional[Callable[..., Any]] = field(default=None, repr=False)
+    question_entries: List[Any] = field(default_factory=list)
     reverse_fill_spec: Optional[ReverseFillSpec] = None
 
     question_config_index_map: Dict[int, Tuple[str, int]] = field(default_factory=dict)

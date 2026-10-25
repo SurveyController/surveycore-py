@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -10,7 +10,7 @@ _current_client: ContextVar[httpx.AsyncClient | None] = ContextVar("surveycore_h
 
 
 @asynccontextmanager
-async def bind(client: httpx.AsyncClient) -> AsyncIterator[None]:
+async def bind(client: httpx.AsyncClient) -> AsyncGenerator[None, None]:
     token = _current_client.set(client)
     try:
         yield
@@ -30,7 +30,6 @@ def current_client() -> httpx.AsyncClient:
 
 
 async def request(method: str, url: str, **kwargs: Any) -> httpx.Response:
-    # 代理由调用方绑定的 AsyncClient/transport 管理；旧 provider 的参数被丢弃。
     kwargs.pop("proxies", None)
     kwargs.pop("proxy", None)
     return await _client().request(method, url, **kwargs)

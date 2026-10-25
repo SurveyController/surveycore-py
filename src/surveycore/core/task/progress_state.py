@@ -238,8 +238,8 @@ class ThreadProgressMixin:
                 )
         rows.sort(
             key=lambda item: (
-                item["thread_index"] <= 0,
-                item["thread_index"] if item["thread_index"] > 0 else 10**9,
+                int(item["thread_index"]) <= 0,
+                int(item["thread_index"]) if int(item["thread_index"]) > 0 else 10**9,
                 item["thread_name"],
             )
         )

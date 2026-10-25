@@ -18,7 +18,6 @@ jobs:
             arch: amd64
             runner: ubuntu-latest
             python-version: "3.13.17"
-          # Keep the minimum supported interpreter in the CI gate.
           - os: Linux
             arch: amd64
             runner: ubuntu-latest

@@ -1,4 +1,3 @@
-# ty: ignore[unresolved-attribute]
 from __future__ import annotations
 
 from pathlib import Path

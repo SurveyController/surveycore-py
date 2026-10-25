@@ -1,4 +1,3 @@
-# ty: ignore[unresolved-attribute]
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -49,12 +48,16 @@ async def test_fill_survey_uses_provider_run_context_and_selected_adapter() -> N
     status_updates: list[tuple[str, bool]] = []
 
     def _capture_update_thread_status(
-        thread_name: str, status_text: str, *, running: bool | None = None
+        _state: ExecutionState,
+        thread_name: str,
+        status_text: str,
+        *,
+        running: bool | None = None,
     ) -> None:
         del thread_name
         status_updates.append((status_text, bool(running)))
 
-    state.update_thread_status = _capture_update_thread_status
+    state.update_thread_status = _capture_update_thread_status.__get__(state, ExecutionState)
     adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_WJX]
 
     @contextmanager

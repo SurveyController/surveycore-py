@@ -1,4 +1,3 @@
-# ty: ignore[invalid-argument-type]
 from __future__ import annotations
 
 from surveycore.providers.common import (

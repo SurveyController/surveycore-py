@@ -1,4 +1,3 @@
-# ty: ignore[unsupported-operator]
 from __future__ import annotations
 
 from unittest.mock import patch

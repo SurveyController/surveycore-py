@@ -1,4 +1,3 @@
-# ty: ignore[invalid-argument-type, not-subscriptable, call-non-callable, missing-argument, no-matching-overload, positional-only-parameter-as-kwarg, too-many-positional-arguments, unknown-argument, unsupported-operator]
 from __future__ import annotations
 
 from types import SimpleNamespace

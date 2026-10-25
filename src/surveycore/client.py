@@ -144,8 +144,8 @@ class SurveyClient:
             stop_on_fail_enabled=False,
             pause_on_aliyun_captcha=False,
         )
-        execution.answer_generator = config.answer_generator  # type: ignore[attr-defined]
-        execution.question_entries = entries  # type: ignore[attr-defined]
+        execution.answer_generator = config.answer_generator
+        execution.question_entries = entries
         execution.questions_metadata = {int(item.num): item for item in legacy_questions if int(getattr(item, "num", 0) or 0) > 0}
         configure_probabilities(entries, execution, reliability_mode_enabled=bool(config.reliability_mode))
         return execution
@@ -166,7 +166,7 @@ class SurveyClient:
                     thread_name="surveycore",
                     provider=provider,
                 )
-        except Exception as exc:  # noqa: BLE001 - one attempt must become one failed result
+        except Exception as exc:
             return SubmissionResult(0, provider, False, time.perf_counter() - started, str(exc) or "提交失败")
         return SubmissionResult(0, provider, bool(success), time.perf_counter() - started, None if success else "平台未确认提交成功")
 

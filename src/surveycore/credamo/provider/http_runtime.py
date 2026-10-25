@@ -55,7 +55,6 @@ class CredamoSubmitResult:
 
 class _CredamoHttpSession:
     def __init__(self, proxy_address: str | None = None) -> None:
-        # 保留旧 provider 的构造签名，但客户端始终由 SurveyClient 提供。
         self.proxy_address = ""
         self._client: httpx.AsyncClient | None = None
 

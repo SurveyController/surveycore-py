@@ -68,7 +68,7 @@ async def test_generate_ai_answer_rejects_invalid_generators() -> None:
 @pytest.mark.asyncio
 async def test_prefill_ai_answers_keeps_thread_scoped_result() -> None:
     config = ExecutionConfig()
-    config.answer_generator = lambda *_args, **_kwargs: "上海||羽毛球"  # type: ignore[attr-defined]
+    config.answer_generator = lambda *_args, **_kwargs: "上海||羽毛球"
     config.questions_metadata = {
         1: SurveyQuestionMeta(num=1, title="城市和爱好", text_inputs=2),
     }
