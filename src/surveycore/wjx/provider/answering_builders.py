@@ -46,6 +46,7 @@ from surveycore.providers.answering.selection import (
     valid_forced_choice_index as _valid_forced_choice_index,
 )
 from surveycore.providers.contracts import SurveyQuestionMeta
+from surveycore.wjx.provider.multilevel import multilevel_answer_action
 from surveycore.wjx.provider.questions.multiple_rules import _normalize_selected_indices
 
 
@@ -201,14 +202,17 @@ async def _build_wjx_dropdown_action(
     )
     fill_value = default_missing_option_fill(question, selected_index, fill_value)
     selected_texts = [f"{selected_text} / {fill_value}" if selected_text and fill_value else (fill_value or selected_text)]
-    return AnswerAction(
-        question_num=current,
-        kind="select",
-        selected_indices=(selected_index,),
-        option_fill_texts=((selected_index, fill_value),) if fill_value else (),
-        selected_texts=tuple(selected_texts),
-        record_type="dropdown",
-        pending_distribution_choices=((selected_index, option_count, None),) if forced_index is None and (strict_ratio or has_reliability_dimension) else (),
+    return multilevel_answer_action(
+        AnswerAction(
+            question_num=current,
+            kind="select",
+            selected_indices=(selected_index,),
+            option_fill_texts=((selected_index, fill_value),) if fill_value else (),
+            selected_texts=tuple(selected_texts),
+            record_type="dropdown",
+            pending_distribution_choices=((selected_index, option_count, None),) if forced_index is None and (strict_ratio or has_reliability_dimension) else (),
+        ),
+        question,
     )
 
 
@@ -589,7 +593,9 @@ async def build_answer_action(
     entry_type, config_index = config_entry
     reverse_fill_answer = ctx.get_reverse_fill_answer(int(question.num), thread_name or None)
     if reverse_fill_answer is not None:
-        return build_reverse_fill_action(reverse_fill_answer, question, entry_type)
+        return multilevel_answer_action(
+            build_reverse_fill_action(reverse_fill_answer, question, entry_type), question
+        )
     if entry_type == "single":
         return await _build_wjx_single_action(
             driver,

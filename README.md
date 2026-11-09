@@ -2,6 +2,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
 [![Async](https://img.shields.io/badge/async-httpx-2C5BB4?logo=python&logoColor=white)](https://www.python-httpx.org/async/)
+[![selectolax](https://img.shields.io/badge/html%20parser-selectolax-FF6F61?logo=python&logoColor=white)](https://github.com/rushter/selectolax)
 [![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=261230)](https://docs.astral.sh/ruff/)
 [![ty](https://img.shields.io/badge/types-ty-D7FF64)](https://docs.astral.sh/ty/)
 

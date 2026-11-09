@@ -20,6 +20,7 @@ from surveycore.wjx.provider.html_parser import (
     extract_survey_title_from_html,
     parse_survey_questions_from_html,
 )
+from surveycore.wjx.provider.multilevel import load_multilevel_options
 from surveycore.wjx.provider.regexes import WJX_NOT_OPEN_TIME_RE, WJX_PAUSED_SURVEY_RE
 
 PAUSED_SURVEY_ERROR_MESSAGE = "问卷已暂停，需要前往问卷星后台重新发布"
@@ -178,6 +179,7 @@ async def parse_wjx_survey(url: str) -> Tuple[List[Dict[str, Any]], str]:
             resp.raise_for_status()
             info, title = _parse_wjx_html(resp.text)
             if info:
+                await load_multilevel_options(info, resp.text, url)
                 break
             if attempt >= _PARSE_RETRY_ATTEMPTS:
                 break

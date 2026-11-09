@@ -38,6 +38,7 @@ from .html_parser_rules import (
     _extract_question_metadata_from_html,
     _extract_question_title,
 )
+from .multilevel import MULTILEVEL_DROPDOWN
 
 __all__ = ["_normalize_html_text", "extract_survey_title_from_html", "parse_survey_questions_from_html"]
 
@@ -179,6 +180,26 @@ def _question_div_or_ancestors_are_hidden(question_div) -> bool:
     return False
 
 
+def _question_div_is_empty_gapfill_placeholder(question_div) -> bool:
+    return (
+        str(question_div.attributes.get("type") or "").strip() == "9"
+        and str(question_div.attributes.get("gapfill") or "").strip() == "1"
+        and str(question_div.attributes.get("relation") or "").strip() in {"", "0"}
+        and _question_div_or_ancestors_are_hidden(question_div)
+        and _count_text_inputs(question_div) == 0
+    )
+
+
+def _extract_empty_gapfill_question_numbers(html: str) -> tuple[int, ...]:
+    soup = LexborHTMLParser(html)
+    return tuple(
+        number
+        for question_div in soup.css("#divQuestion div[topic]")
+        if _question_div_is_empty_gapfill_placeholder(question_div)
+        and (number := _extract_question_number_from_div(question_div)) is not None
+    )
+
+
 def _question_div_has_question_ancestor(question_div, fieldset) -> bool:
     current = getattr(question_div, "parent", None)
     while current is not None and current.mem_id != fieldset.mem_id:
@@ -220,15 +241,13 @@ def parse_survey_questions_from_html(html: str) -> List[Dict[str, Any]]:
             type_code = str(question_div.attributes.get("type") or "").strip() or "0"
             if type_code != "11" and _question_looks_like_reorder(question_div):
                 type_code = "11"
-            if (
-                type_code == "9"
-                and str(question_div.attributes.get("gapfill") or "").strip() == "1"
-                and str(question_div.attributes.get("relation") or "").strip() in {"", "0"}
-                and _question_div_or_ancestors_are_hidden(question_div)
-                and _count_text_inputs(question_div) == 0
-            ):
+            if _question_div_is_empty_gapfill_placeholder(question_div):
                 continue
             is_description = _question_looks_like_description(question_div, type_code)
+            multilevel_input = question_div.css_first('input[verify="多级下拉"]')
+            is_multilevel = type_code == "1" and multilevel_input is not None
+            if is_multilevel:
+                type_code = "7"
             is_required = _question_is_required(question_div)
             is_rating = False
             rating_max = 0
@@ -283,7 +302,7 @@ def parse_survey_questions_from_html(html: str) -> List[Dict[str, Any]]:
                 slider_min, slider_max, slider_step = _extract_slider_range(question_div, question_number)
             elif is_slider_matrix:
                 slider_min, slider_max, slider_step = _extract_slider_range(question_div, question_number)
-            text_input_count = _count_text_inputs(question_div)
+            text_input_count = 0 if is_multilevel else _count_text_inputs(question_div)
             text_input_labels = _extract_text_input_labels(question_div) if text_input_count > 1 else []
             has_gapfill = str(question_div.attributes.get("gapfill") or "").strip() == "1"
             is_text_like_question = _should_treat_question_as_text_like(
@@ -314,6 +333,11 @@ def parse_survey_questions_from_html(html: str) -> List[Dict[str, Any]]:
                 "display_num": display_num,
                 "title": title_text,
                 "type_code": type_code,
+                "provider_type": MULTILEVEL_DROPDOWN if is_multilevel else type_code,
+                "provider_page_raw": (
+                    {"cid": multilevel_input.attributes.get("cid") or ""}
+                    if multilevel_input is not None and is_multilevel else None
+                ),
                 "options": option_count,
                 "rows": matrix_rows,
                 "row_texts": row_texts,

@@ -33,6 +33,7 @@ from surveycore.providers.errors import (
 from surveycore.providers.http_logic import HttpLogicPlan, build_http_logic_plan
 from surveycore.providers.http_progress import update_http_submit_step
 from surveycore.wjx.provider.answering_builders import build_answer_action
+from surveycore.wjx.provider.html_parser import _extract_empty_gapfill_question_numbers
 from surveycore.wjx.provider.parser import _parse_wjx_html, _raise_wjx_page_state_errors
 from surveycore.wjx.provider.regexes import WJX_SCENE_ID_PATTERNS
 
@@ -252,6 +253,7 @@ def _submitdata_from_actions(
     *,
     questions: list[SurveyQuestionMeta] | None = None,
     skipped_question_nums: tuple[int, ...] = (),
+    empty_question_nums: tuple[int, ...] = (),
 ) -> str:
     action_by_num = {int(action.question_num or 0): action for action in actions if int(action.question_num or 0) > 0}
     skipped_nums = {int(item) for item in skipped_question_nums if int(item) > 0}
@@ -260,16 +262,19 @@ def _submitdata_from_actions(
         for question in list(questions or [])
         if int(getattr(question, "num", 0) or 0) > 0
     }
-    ordered_nums = sorted(set(action_by_num) | skipped_nums)
+    empty_nums = set(empty_question_nums)
+    ordered_nums = sorted(set(action_by_num) | skipped_nums | empty_nums)
     parts: list[str] = []
     for question_num in ordered_nums:
         action = action_by_num.get(question_num)
         if action is not None:
             answer = _submitdata_answer(action)
+        elif question_num in empty_nums:
+            answer = ""
         else:
             question = question_by_num.get(question_num)
             answer = _skipped_submitdata_answer(question) if question is not None else "-3"
-        if question_num <= 0 or not answer:
+        if question_num <= 0 or (not answer and question_num not in empty_nums):
             continue
         answer = answer.replace("，", ",")
         parts.append(f"{question_num}${answer}")
@@ -483,6 +488,7 @@ async def brush_wjx_http(
             actions,
             questions=_question_items(config),
             skipped_question_nums=plan.skipped_question_nums,
+            empty_question_nums=_extract_empty_gapfill_question_numbers(page_html),
         )
         if not bool(getattr(config, "submit_enabled", True)):
             logging.info("问卷星 HTTP 单测已生成答案，未提交。")
