@@ -123,6 +123,7 @@ class SurveyClient:
 
     def _execution_config(self, config: RunConfig, survey: SurveyDefinition | None) -> ExecutionConfig:
         provider = self._resolve_provider(config)
+        normalized_url = normalize_survey_parse_url(config.url)
         from ._question_metas import to_question_metas
         legacy_questions = to_question_metas(survey.questions if survey else ())
         entries: list[QuestionEntry] = [QuestionEntry(**{
@@ -130,9 +131,9 @@ class SurveyClient:
             if hasattr(item, key)
         }) for item in config.questions]
         if not entries and legacy_questions:
-            entries = list(build_default_question_entries(legacy_questions, survey_url=config.url, existing_entries=[]))
+            entries = list(build_default_question_entries(legacy_questions, survey_url=normalized_url, existing_entries=[]))
         execution = ExecutionConfig(
-            url=str(config.url or ""),
+            url=normalized_url,
             survey_provider=provider,
             target_num=max(1, int(config.target)),
             num_threads=max(1, int(config.concurrency)),

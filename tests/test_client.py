@@ -170,6 +170,23 @@ async def test_submit_reports_unconfirmed_provider_result(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_submit_normalizes_url_before_provider_http_runtime(monkeypatch) -> None:
+    captured = []
+
+    async def fake_fill(execution, *_args, **_kwargs):
+        captured.append(execution)
+        return True
+
+    config = RunConfig(url="www.wjx.cn/vj/demo.aspx", provider="wjx")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200))) as http_client:
+        monkeypatch.setattr(client_module, "fill_survey_http", fake_fill)
+        result = await SurveyClient(http_client).submit(config)
+
+    assert result.success is True
+    assert captured[0].url == "https://www.wjx.cn/vj/demo.aspx"
+
+
+@pytest.mark.asyncio
 async def test_run_parses_once_submits_each_attempt_and_applies_interval(monkeypatch) -> None:
     survey = SurveyDefinition(
         provider="wjx",

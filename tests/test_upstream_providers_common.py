@@ -14,6 +14,7 @@ from surveycore.providers.common import (
     is_supported_survey_url,
     is_wjx_domain,
     is_wjx_survey_url,
+    normalize_survey_parse_url,
     normalize_survey_provider,
 )
 
@@ -32,6 +33,12 @@ class TestProviderCommon:
         assert detect_survey_provider("https://www.credamo.com/s/demo") == SURVEY_PROVIDER_CREDAMO
         assert detect_survey_provider("https://wj.qq.com/s2/123/abc") == SURVEY_PROVIDER_QQ
         assert detect_survey_provider("https://www.wjx.cn/vm/demo.aspx") == SURVEY_PROVIDER_WJX
+
+    def test_normalize_survey_parse_url_completes_missing_scheme(self) -> None:
+        assert (
+            normalize_survey_parse_url("www.wjx.cn/vm/demo.aspx")
+            == "https://www.wjx.cn/vm/demo.aspx"
+        )
 
     def test_wjx_helpers_accept_subdomains(self) -> None:
         assert is_wjx_domain("https://foo.wjx.top/demo")
