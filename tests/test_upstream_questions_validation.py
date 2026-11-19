@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from surveycore.core.questions.schema import QuestionEntry
 from surveycore.core.questions.validation import validate_question_config
 
@@ -107,6 +109,15 @@ class TestQuestionValidation:
         assert result is not None
         assert result is not None
         assert "第 2 行所有选项配比都小于等于 0" in result
+
+    def test_single_question_preserves_legacy_scalar_custom_weights(self) -> None:
+        entry = QuestionEntry(
+            question_type="single",
+            probabilities=[0.0, 0.0],
+            custom_weights=cast(Any, 0),
+            distribution_mode="custom",
+        )
+        assert validate_question_config([entry]) is None
 
     def test_attached_option_select_rejects_zero_weight_group(self) -> None:
         entry = QuestionEntry(

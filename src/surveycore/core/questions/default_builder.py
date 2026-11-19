@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 from surveycore.app.config import DEFAULT_FILL_TEXT
 from surveycore.core.questions.meta_helpers import (
@@ -22,7 +23,7 @@ from surveycore.providers.common import (
     detect_survey_provider,
     normalize_survey_provider,
 )
-from surveycore.providers.contracts import SurveyQuestionMeta
+from surveycore.providers.contracts import SurveyQuestionInput
 
 __all__ = ["build_default_question_entries"]
 
@@ -30,21 +31,16 @@ __all__ = ["build_default_question_entries"]
 def _as_float(val: Any, default: float) -> float:
     try:
         return float(val)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
-def _build_mid_bias_weights(option_count: int) -> List[float]:
-    count = max(1, int(option_count or 1))
-    return [1.0] * count
-
-
-def _normalize_question_num(raw: Any) -> Optional[int]:
+def _normalize_question_num(raw: Any) -> int | None:
     try:
         if raw is None:
             return None
         return int(raw)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -58,7 +54,7 @@ def _normalize_title(raw: Any) -> str:
     return "".join(text.split())
 
 
-def _normalize_provider_key(raw_provider: Any, raw_question_id: Any) -> Optional[Tuple[str, str]]:
+def _normalize_provider_key(raw_provider: Any, raw_question_id: Any) -> tuple[str, str] | None:
     provider = normalize_survey_provider(raw_provider, default=SURVEY_PROVIDER_WJX)
     question_id = str(raw_question_id or "").strip()
     if not question_id:
@@ -66,10 +62,10 @@ def _normalize_provider_key(raw_provider: Any, raw_question_id: Any) -> Optional
     return provider, question_id
 
 
-def _normalize_forced_option_index(raw: Any, option_count: int) -> Optional[int]:
+def _normalize_forced_option_index(raw: Any, option_count: int) -> int | None:
     try:
         idx = int(raw)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return None
     total = max(0, int(option_count or 0))
     if 0 <= idx < total:
@@ -77,15 +73,15 @@ def _normalize_forced_option_index(raw: Any, option_count: int) -> Optional[int]
     return None
 
 
-def _build_forced_single_weights(option_count: int, forced_index: int) -> List[float]:
+def _build_forced_single_weights(option_count: int, forced_index: int) -> list[float]:
     total = max(1, int(option_count or 1))
     return [1.0 if idx == forced_index else 0.0 for idx in range(total)]
 
 
-def _infer_multi_text_blank_modes(q: SurveyQuestionMeta, blank_count: int) -> List[str]:
-    labels = [str(item or "").strip() for item in list(q.get("text_input_labels") or [])]
+def _infer_multi_text_blank_modes(q: SurveyQuestionInput, blank_count: int) -> list[str]:
+    labels = [str(item or "").strip() for item in (q.get("text_input_labels") or [])]
     title = str(q.get("title") or "").strip()
-    modes: List[str] = []
+    modes: list[str] = []
     for index in range(max(0, int(blank_count or 0))):
         text = labels[index] if index < len(labels) else ""
         if not text and blank_count <= 1:
@@ -105,279 +101,176 @@ def _infer_multi_text_blank_modes(q: SurveyQuestionMeta, blank_count: int) -> Li
 def _filter_option_fill_texts_to_fillable(
     option_fill_texts: Any,
     option_count: int,
-    fillable_indices: List[int],
-) -> Optional[List[Optional[str]]]:
+    fillable_indices: list[int],
+) -> list[str | None] | None:
     if not isinstance(option_fill_texts, list) or not fillable_indices:
         return None
-    total = max(0, int(option_count or 0))
-    fillable_set: set[int] = set()
-    for raw_index in fillable_indices:
-        try:
-            option_index = int(raw_index)
-        except Exception:
-            continue
-        if 0 <= option_index < total:
-            fillable_set.add(option_index)
-    if not fillable_set:
-        return None
-    normalized: List[Optional[str]] = []
-    for option_index in range(total):
+    fillable_set = set(fillable_indices)
+    normalized: list[str | None] = []
+    for option_index in range(option_count):
         raw_value = option_fill_texts[option_index] if option_index < len(option_fill_texts) else None
         text = str(raw_value or "").strip()
         normalized.append(text if option_index in fillable_set and text else None)
     return normalized if any(normalized) else None
 
 
+def _default_entry(
+    question: SurveyQuestionInput, kind: str, option_count: int,
+) -> QuestionEntry:
+    entry = QuestionEntry(kind, -1, option_count=option_count)
+    if kind == "score":
+        entry.option_count = max(option_count, 2)
+        entry.probabilities = [1.0] * entry.option_count
+        entry.custom_weights = entry.probabilities.copy()
+        entry.distribution_mode = "custom"
+    elif kind == "multiple":
+        entry.probabilities = [50.0] * option_count
+    elif kind == "slider":
+        minimum = _as_float(question.get("slider_min"), 0.0)
+        raw_maximum = question.get("slider_max")
+        maximum = _as_float(raw_maximum, 100.0 if raw_maximum is None else raw_maximum)
+        if maximum <= minimum:
+            maximum = minimum + 100.0
+        midpoint = minimum + (maximum - minimum) / 2.0
+        entry.probabilities = [midpoint]
+        entry.custom_weights = [midpoint]
+        entry.distribution_mode = "custom"
+        entry.option_count = 1
+    elif kind in ("text", "multi_text"):
+        entry.probabilities = [1.0]
+        entry.texts = [DEFAULT_FILL_TEXT]
+        if kind == "multi_text":
+            entry.multi_text_blank_modes = _infer_multi_text_blank_modes(question, int(question.get("text_inputs") or 0))
+    return entry
+
+
+def _reuse_entry(existing: QuestionEntry, option_count: int) -> QuestionEntry:
+    kind = existing.question_type
+    entry = QuestionEntry(
+        kind,
+        copy.deepcopy(existing.probabilities),
+        texts=copy.deepcopy(existing.texts),
+        option_count=option_count,
+        distribution_mode=existing.distribution_mode or "random",
+        custom_weights=copy.deepcopy(existing.custom_weights),
+        location_parts=list(existing.location_parts or []),
+    )
+    if kind in ("text", "multi_text"):
+        entry.ai_enabled = existing.ai_enabled
+    if kind == "text":
+        entry.text_random_mode = str(existing.text_random_mode or _TEXT_RANDOM_NONE)
+        entry.text_random_int_range = copy.deepcopy(existing.text_random_int_range)
+    elif kind == "multi_text":
+        entry.multi_text_blank_modes = copy.deepcopy(existing.multi_text_blank_modes)
+        entry.multi_text_blank_ai_flags = copy.deepcopy(existing.multi_text_blank_ai_flags)
+        entry.multi_text_blank_int_ranges = copy.deepcopy(existing.multi_text_blank_int_ranges)
+    return entry
+
+
 def build_default_question_entries(
-    questions_info: List[SurveyQuestionMeta],
+    questions_info: Sequence[SurveyQuestionInput],
     *,
     survey_url: str = "",
-    existing_entries: Optional[List[QuestionEntry]] = None,
-) -> List[QuestionEntry]:
-    
+    existing_entries: list[QuestionEntry] | None = None,
+) -> list[QuestionEntry]:
+    existing_by_num: dict[int, QuestionEntry] = {}
+    existing_by_title: dict[str, QuestionEntry] = {}
+    existing_by_provider: dict[tuple[str, str], QuestionEntry] = {}
+    for entry in existing_entries or ():
+        number = _normalize_question_num(entry.question_num)
+        if number is not None:
+            existing_by_num.setdefault(number, entry)
+        title = _normalize_title(entry.question_title)
+        if title:
+            existing_by_title.setdefault(title, entry)
+        provider_key = _normalize_provider_key(entry.survey_provider, entry.provider_question_id)
+        if provider_key:
+            existing_by_provider.setdefault(provider_key, entry)
 
-    existing_by_num: Dict[int, QuestionEntry] = {}
-    existing_by_title: Dict[str, QuestionEntry] = {}
-    existing_by_provider: Dict[Tuple[str, str], QuestionEntry] = {}
-    if existing_entries:
-        for entry in existing_entries:
-            q_num = _normalize_question_num(getattr(entry, "question_num", None))
-            if q_num is not None and q_num not in existing_by_num:
-                existing_by_num[q_num] = entry
-            title_key = _normalize_title(getattr(entry, "question_title", None))
-            if title_key and title_key not in existing_by_title:
-                existing_by_title[title_key] = entry
-            provider_key = _normalize_provider_key(
-                getattr(entry, "survey_provider", None),
-                getattr(entry, "provider_question_id", None),
-            )
-            if provider_key and provider_key not in existing_by_provider:
-                existing_by_provider[provider_key] = entry
+    def find_existing(
+        kind: str, title: str, number: int | None, provider_key: tuple[str, str] | None,
+    ) -> QuestionEntry | None:
+        candidate = existing_by_provider.get(provider_key) if provider_key else None
+        if candidate is not None and candidate.question_type == kind:
+            return candidate
+        candidate = existing_by_num.get(number) if number is not None else None
+        if candidate is not None and candidate.question_type == kind:
+            saved_title = _normalize_title(candidate.question_title)
+            if not title or not saved_title or title == saved_title:
+                return candidate
+        candidate = existing_by_title.get(title)
+        return candidate if candidate is not None and candidate.question_type == kind else None
 
     detected_provider = detect_survey_provider(survey_url)
-    entries: List[QuestionEntry] = []
-    for q in questions_info:
-        if bool(q.get("is_description")) or bool(q.get("unsupported")):
+    entries: list[QuestionEntry] = []
+    for question in questions_info:
+        if question.get("is_description") or question.get("unsupported"):
             continue
 
-        option_count = int(q.get("options") or 0)
-        rows = int(q.get("rows") or 1)
-        is_location = bool(q.get("is_location"))
-        text_inputs = int(q.get("text_inputs") or 0)
-        slider_min = q.get("slider_min")
-        slider_max = q.get("slider_max")
-        rating_max = int(q.get("rating_max") or 0)
-        title_text = str(q.get("title") or "").strip()
-        forced_option_text = str(q.get("forced_option_text") or "").strip()
-        forced_texts_raw = q.get("forced_texts")
-        forced_texts = [
-            str(item or "").strip()
-            for item in (forced_texts_raw if isinstance(forced_texts_raw, list) else [])
-            if str(item or "").strip()
-        ]
-        attached_option_selects = q.get("attached_option_selects") if isinstance(q.get("attached_option_selects"), list) else []
-        survey_provider = normalize_survey_provider(q.get("provider"), default=detected_provider)
-        provider_question_id = str(q.get("provider_question_id") or "").strip()
-        provider_page_id = str(q.get("provider_page_id") or "").strip()
+        kind = infer_question_entry_type(question)
+        option_count = max(int(question.get("options") or 0), int(question.get("rating_max") or 0), 1)
+        if kind in ("text", "multi_text"):
+            option_count = max(option_count, int(question.get("text_inputs") or 0))
+        forced_index = _normalize_forced_option_index(question.get("forced_option_index"), option_count)
+        title = str(question.get("title") or "").strip()
+        provider = normalize_survey_provider(question.get("provider"), default=detected_provider)
+        question_id = str(question.get("provider_question_id") or "").strip()
+        existing = find_existing(
+            kind, _normalize_title(title), _normalize_question_num(question.get("num")),
+            _normalize_provider_key(provider, question_id),
+        )
+        entry = (
+            _reuse_entry(existing, option_count)
+            if existing is not None
+            else _default_entry(question, kind, option_count)
+        )
+        entry.question_num = question.get("num")
+        entry.question_title = title or None
+        entry.survey_provider = provider
+        entry.provider_question_id = question_id or None
+        entry.provider_page_id = str(question.get("provider_page_id") or "").strip() or None
+        entry.rows = int(question.get("rows") or 1)
+        entry.is_location = bool(question.get("is_location"))
 
-        q_type = infer_question_entry_type(q)
-
-        base_option_count = max(option_count, rating_max, 1)
-        if q_type in ("text", "multi_text"):
-            option_count = max(base_option_count, text_inputs, 1)
-        else:
-            option_count = base_option_count
-        forced_option_index = _normalize_forced_option_index(q.get("forced_option_index"), option_count)
-        parsed_title_key = _normalize_title(title_text)
-
-        existing_config: Optional[QuestionEntry] = None
-        provider_key = _normalize_provider_key(survey_provider, provider_question_id)
-        if provider_key:
-            candidate = existing_by_provider.get(provider_key)
-            if candidate and candidate.question_type == q_type:
-                existing_config = candidate
-        parsed_question_num = _normalize_question_num(q.get("num"))
-        if existing_config is None and parsed_question_num is not None:
-            candidate = existing_by_num.get(parsed_question_num)
-            if candidate and candidate.question_type == q_type:
-                candidate_title_key = _normalize_title(getattr(candidate, "question_title", None))
-                if parsed_title_key and candidate_title_key and candidate_title_key != parsed_title_key:
-                    candidate = None
-                if candidate is not None:
-                    existing_config = candidate
-        if existing_config is None and parsed_title_key:
-            candidate = existing_by_title.get(parsed_title_key)
-            if candidate and candidate.question_type == q_type:
-                existing_config = candidate
-
-        if existing_config:
-            probabilities: Any = copy.deepcopy(existing_config.probabilities)
-            distribution = existing_config.distribution_mode or "random"
-            custom_weights = copy.deepcopy(existing_config.custom_weights)
-            texts = copy.deepcopy(existing_config.texts)
-            ai_enabled_from_existing = getattr(existing_config, "ai_enabled", False) if q_type in ("text", "multi_text") else False
-            text_random_mode_from_existing = (
-                str(getattr(existing_config, "text_random_mode", "none") or "none")
-                if q_type == "text"
-                else "none"
-            )
-            text_random_int_range_from_existing = (
-                copy.deepcopy(getattr(existing_config, "text_random_int_range", []))
-                if q_type == "text"
-                else []
-            )
-            multi_text_blank_modes_from_existing = (
-                copy.deepcopy(getattr(existing_config, "multi_text_blank_modes", []))
-                if q_type == "multi_text"
-                else []
-            )
-            multi_text_blank_ai_flags_from_existing = (
-                copy.deepcopy(getattr(existing_config, "multi_text_blank_ai_flags", []))
-                if q_type == "multi_text"
-                else []
-            )
-            multi_text_blank_int_ranges_from_existing = (
-                copy.deepcopy(getattr(existing_config, "multi_text_blank_int_ranges", []))
-                if q_type == "multi_text"
-                else []
-            )
-            option_fill_texts_from_existing = (
-                copy.deepcopy(getattr(existing_config, "option_fill_texts", None))
-                if q_type in ("single", "multiple", "dropdown")
-                else None
-            )
-            fillable_indices_from_existing = (
-                copy.deepcopy(getattr(existing_config, "fillable_option_indices", None))
-                if q_type in ("single", "multiple", "dropdown")
-                else None
-            )
-            attached_selects_from_existing = copy.deepcopy(getattr(existing_config, "attached_option_selects", []) or [])
-        else:
-            ai_enabled_from_existing = False
-            text_random_mode_from_existing = "none"
-            text_random_int_range_from_existing = []
-            multi_text_blank_modes_from_existing = (
-                _infer_multi_text_blank_modes(q, text_inputs)
-                if q_type == "multi_text"
-                else []
-            )
-            multi_text_blank_ai_flags_from_existing = []
-            multi_text_blank_int_ranges_from_existing = []
-            option_fill_texts_from_existing = None
-            fillable_indices_from_existing = None
-            attached_selects_from_existing = []
-            if q_type in ("single", "dropdown", "scale"):
-                probabilities = -1
-                distribution = "random"
-                custom_weights = None
-                texts = None
-            elif q_type == "score":
-                option_count = max(option_count, 2)
-                weights = _build_mid_bias_weights(option_count)
-                probabilities = list(weights)
-                distribution = "custom"
-                custom_weights = list(weights)
-                texts = None
-            elif q_type == "multiple":
-                probabilities = [50.0] * option_count
-                distribution = "random"
-                custom_weights = None
-                texts = None
-            elif q_type == "matrix":
-                probabilities = -1
-                distribution = "random"
-                custom_weights = None
-                texts = None
-            elif q_type == "order":
-                probabilities = -1
-                distribution = "random"
-                custom_weights = None
-                texts = None
-            elif q_type == "slider":
-                min_val = _as_float(slider_min, 0.0)
-                max_val = _as_float(slider_max, 100.0 if slider_max is None else slider_max)
-                if max_val <= min_val:
-                    max_val = min_val + 100.0
-                midpoint = min_val + (max_val - min_val) / 2.0
-                probabilities = [midpoint]
-                distribution = "custom"
-                custom_weights = [midpoint]
-                texts = None
-                option_count = 1
-            else:
-                probabilities = [1.0]
-                distribution = "random"
-                custom_weights = None
-                texts = [DEFAULT_FILL_TEXT]
-
-        if forced_option_index is not None and q_type in ("single", "dropdown", "scale", "score"):
-            if q_type == "score":
-                option_count = max(option_count, 2)
-                forced_option_index = min(forced_option_index, option_count - 1)
-            forced_weights = _build_forced_single_weights(option_count, forced_option_index)
-            probabilities = list(forced_weights)
-            distribution = "custom"
-            custom_weights = list(forced_weights)
+        if forced_index is not None and kind in ("single", "dropdown", "scale", "score"):
+            if kind == "score":
+                entry.option_count = max(entry.option_count, 2)
+            weights = _build_forced_single_weights(entry.option_count, forced_index)
+            entry.probabilities = weights
+            entry.custom_weights = weights.copy()
+            entry.distribution_mode = "custom"
             logging.info(
                 "题号%s检测到指定作答指令，已强制锁定为第%s项（%s）",
-                q.get("num"),
-                forced_option_index + 1,
-                forced_option_text or "无文本",
+                question.get("num"),
+                forced_index + 1,
+                str(question.get("forced_option_text") or "").strip() or "无文本",
             )
-        if forced_texts and q_type in ("text", "multi_text"):
-            texts = list(forced_texts)
-            logging.info("题号%s检测到指定填空内容，已自动填入固定答案", q.get("num"))
+        if kind in ("text", "multi_text"):
+            raw_forced_texts = question.get("forced_texts")
+            forced_texts = [
+                text for item in (raw_forced_texts if isinstance(raw_forced_texts, list) else [])
+                if (text := str(item or "").strip())
+            ]
+            if forced_texts:
+                entry.texts = forced_texts
+                logging.info("题号%s检测到指定填空内容，已自动填入固定答案", question.get("num"))
 
-        fillable_option_indices = (
-            normalize_fillable_option_indices(
-                q.get("fillable_options"),
-                option_count,
-                fillable_indices_from_existing,
+        entry.fillable_option_indices = []
+        if kind in ("single", "multiple", "dropdown"):
+            entry.fillable_option_indices = normalize_fillable_option_indices(
+                question.get("fillable_options"),
+                entry.option_count,
+                existing.fillable_option_indices if existing is not None else None,
             )
-            if q_type in ("single", "multiple", "dropdown")
-            else []
-        )
-        option_fill_texts = (
-            _filter_option_fill_texts_to_fillable(
-                option_fill_texts_from_existing,
-                option_count,
-                fillable_option_indices,
+            entry.option_fill_texts = _filter_option_fill_texts_to_fillable(
+                existing.option_fill_texts if existing is not None else None,
+                entry.option_count,
+                entry.fillable_option_indices,
             )
-            if q_type in ("single", "multiple", "dropdown")
-            else None
-        )
-        entries.append(
-            QuestionEntry(
-                question_type=q_type,
-                probabilities=probabilities,
-                texts=texts,
-                rows=rows,
-                option_count=option_count,
-                distribution_mode=distribution,
-                custom_weights=custom_weights,
-                question_num=q.get("num"),
-                question_title=title_text or None,
-                survey_provider=survey_provider,
-                provider_question_id=provider_question_id or None,
-                provider_page_id=provider_page_id or None,
-                ai_enabled=ai_enabled_from_existing if q_type in ("text", "multi_text") else False,
-                multi_text_blank_modes=multi_text_blank_modes_from_existing if q_type == "multi_text" else [],
-                multi_text_blank_ai_flags=multi_text_blank_ai_flags_from_existing if q_type == "multi_text" else [],
-                multi_text_blank_int_ranges=multi_text_blank_int_ranges_from_existing if q_type == "multi_text" else [],
-                text_random_mode=text_random_mode_from_existing if q_type == "text" else "none",
-                text_random_int_range=text_random_int_range_from_existing if q_type == "text" else [],
-                option_fill_texts=option_fill_texts,
-                fillable_option_indices=fillable_option_indices,
-                attached_option_selects=(
-                    normalize_attached_option_selects(
-                        attached_option_selects,
-                        attached_selects_from_existing if q_type == "single" else None,
-                    )
-                    if q_type == "single"
-                    else []
-                ),
-                is_location=is_location,
-                location_parts=list(getattr(existing_config, "location_parts", []) or []) if existing_config else [],
+        if kind == "single":
+            entry.attached_option_selects = normalize_attached_option_selects(
+                question.get("attached_option_selects"),
+                existing.attached_option_selects if existing is not None else None,
             )
-        )
+        entries.append(entry)
     return entries

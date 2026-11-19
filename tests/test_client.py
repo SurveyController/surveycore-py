@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import httpx
 import pytest
 
@@ -152,6 +154,24 @@ async def test_submit_builds_one_attempt_and_preserves_failure_as_result(monkeyp
     assert kwargs["provider"] == "wjx"
     assert kwargs["thread_name"] == "surveycore"
     assert failure.success is False and failure.error == "提交端拒绝"
+
+
+@pytest.mark.asyncio
+async def test_submit_preserves_legacy_string_question_number(monkeypatch) -> None:
+    async def fill(execution, *_args, **_kwargs):
+        assert execution.questions_metadata[1].num == 1
+        assert execution.question_config_index_map == {1: ("single", 0)}
+        return True
+
+    url = "https://www.wjx.cn/vj/demo.aspx"
+    question = SurveyQuestion(num=cast(Any, "1"), title="选择", type_code="3", options=2)
+    survey = SurveyDefinition(provider="wjx", title="测试", url=url, questions=(question,))
+    request = SubmissionRequest(config=RunConfig(url=url), survey=survey)
+    monkeypatch.setattr(client_module, "fill_survey_http", fill)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200))) as http_client:
+        result = await SurveyClient(http_client).submit(request)
+
+    assert result.success is True
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, overload
 
 from surveycore.providers.common import SURVEY_PROVIDER_WJX, normalize_survey_provider
 
@@ -114,12 +114,20 @@ class SurveyDefinition:
 SurveyQuestionInput = SurveyQuestionMeta | Mapping[str, Any]
 
 
-def _as_int(value: Any, default: int, *, minimum: int | None = None) -> int:
+@overload
+def _as_int(value: Any, default: int, *, minimum: int | None = None) -> int: ...
+
+
+@overload
+def _as_int(value: Any, default: None) -> int | None: ...
+
+
+def _as_int(value: Any, default: int | None, *, minimum: int | None = None) -> int | None:
     try:
         number = int(value)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         number = default
-    if minimum is not None:
+    if minimum is not None and number is not None:
         number = max(minimum, number)
     return number
 
@@ -143,19 +151,14 @@ def _normalize_dict_list(raw: Any) -> List[Dict[str, Any]]:
 
 def _normalize_jump_rules(raw: Any) -> List[Dict[str, Any]]:
     rules = _normalize_dict_list(raw)
-    normalized_rules: List[Dict[str, Any]] = []
     terminate_keywords = ("结束作答", "结束答题", "结束填写", "终止作答", "停止作答")
     for rule in rules:
-        normalized_rule = dict(rule)
-        if "terminates_survey" not in normalized_rule:
-            option_text = str(normalized_rule.get("option_text") or "").strip()
-            normalized_rule["terminates_survey"] = bool(
-                option_text and any(keyword in option_text for keyword in terminate_keywords)
-            )
+        if "terminates_survey" in rule:
+            rule["terminates_survey"] = bool(rule["terminates_survey"])
         else:
-            normalized_rule["terminates_survey"] = bool(normalized_rule.get("terminates_survey"))
-        normalized_rules.append(normalized_rule)
-    return normalized_rules
+            option_text = str(rule.get("option_text") or "").strip()
+            rule["terminates_survey"] = any(keyword in option_text for keyword in terminate_keywords)
+    return rules
 
 
 def _normalize_logic_parse_status(raw: Any) -> str:
@@ -165,12 +168,9 @@ def _normalize_logic_parse_status(raw: Any) -> str:
     return LOGIC_PARSE_STATUS_UNKNOWN
 
 
-def _infer_logic_parse_status(normalized: Mapping[str, Any]) -> str:
+def _infer_logic_parse_status(normalized: Mapping[str, Any], has_parsed_logic: bool) -> str:
     if "logic_parse_status" in normalized:
-        explicit = str(normalized.get("logic_parse_status") or "").strip().lower()
-        if explicit in _VALID_LOGIC_PARSE_STATUSES:
-            return explicit
-        return LOGIC_PARSE_STATUS_UNKNOWN
+        return _normalize_logic_parse_status(normalized["logic_parse_status"])
 
     has_logic = bool(
         normalized.get("has_jump")
@@ -180,11 +180,6 @@ def _infer_logic_parse_status(normalized: Mapping[str, Any]) -> str:
     if not has_logic:
         return LOGIC_PARSE_STATUS_NONE
 
-    has_parsed_logic = bool(
-        _normalize_dict_list(normalized.get("jump_rules"))
-        or _normalize_dict_list(normalized.get("display_conditions"))
-        or _normalize_dict_list(normalized.get("controls_display_targets"))
-    )
     return LOGIC_PARSE_STATUS_COMPLETE if has_parsed_logic else LOGIC_PARSE_STATUS_UNKNOWN
 
 
@@ -212,7 +207,7 @@ def _normalize_question_media_list(raw: Any) -> List[Dict[str, Any]]:
                 continue
             try:
                 normalized_index = int(index)
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 continue
             if normalized_index < 0:
                 continue
@@ -289,22 +284,15 @@ def survey_question_meta_to_dict(question: SurveyQuestionMeta) -> Dict[str, Any]
 
 
 def _normalize_question(question: SurveyQuestionInput, provider: str, index: int) -> SurveyQuestionMeta:
-    normalized = dict(_survey_question_input_to_dict(question) or {})
+    normalized = _survey_question_input_to_dict(question) or {}
     page_number = _as_int(normalized.get("page"), 1, minimum=1)
     question_number = _as_int(normalized.get("num"), index, minimum=1)
-    raw_display_num = normalized.get("display_num")
-    display_number: Optional[int] = None
-    if raw_display_num not in (None, ""):
-        try:
-            display_number = int(raw_display_num)
-        except Exception:
-            display_number = None
-    option_count = _as_int(normalized.get("options"), len(_normalize_text_list(normalized.get("option_texts"))), minimum=0)
-    row_count = _as_int(normalized.get("rows"), len(_normalize_text_list(normalized.get("row_texts"))) or 1, minimum=1)
-
-    normalized_provider = normalize_survey_provider(normalized.get("provider"), default=provider)
+    display_number = _as_int(normalized.get("display_num"), None)
     option_texts = _normalize_text_list(normalized.get("option_texts"))
     row_texts = _normalize_text_list(normalized.get("row_texts"))
+    option_count = _as_int(normalized.get("options"), len(option_texts), minimum=0)
+    row_count = _as_int(normalized.get("rows"), len(row_texts) or 1, minimum=1)
+    normalized_provider = normalize_survey_provider(normalized.get("provider"), default=provider)
     text_input_labels = _normalize_text_list(normalized.get("text_input_labels"))
     forced_texts = _normalize_text_list(normalized.get("forced_texts"))
     fillable_options_raw = normalized.get("fillable_options")
@@ -313,7 +301,7 @@ def _normalize_question(question: SurveyQuestionInput, provider: str, index: int
         for raw in fillable_options_raw:
             try:
                 fillable_options.append(int(raw))
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 continue
     else:
         fillable_options = []
@@ -328,12 +316,9 @@ def _normalize_question(question: SurveyQuestionInput, provider: str, index: int
     if unsupported and not unsupported_reason:
         unsupported_reason = "当前平台暂不支持该题型"
 
-    forced_option_index = normalized.get("forced_option_index")
-    try:
-        if forced_option_index is not None:
-            forced_option_index = int(forced_option_index)
-    except Exception:
-        forced_option_index = None
+    jump_rules = _normalize_jump_rules(normalized.get("jump_rules"))
+    display_conditions = _normalize_dict_list(normalized.get("display_conditions"))
+    controls_display_targets = _normalize_dict_list(normalized.get("controls_display_targets"))
 
     return SurveyQuestionMeta(
         num=question_number,
@@ -346,7 +331,7 @@ def _normalize_question(question: SurveyQuestionInput, provider: str, index: int
         row_texts=row_texts,
         page=page_number,
         option_texts=option_texts,
-        forced_option_index=forced_option_index,
+        forced_option_index=_as_int(normalized.get("forced_option_index"), None),
         forced_option_text=str(normalized.get("forced_option_text") or "").strip(),
         forced_texts=forced_texts,
         fillable_options=fillable_options,
@@ -362,12 +347,12 @@ def _normalize_question(question: SurveyQuestionInput, provider: str, index: int
         is_text_like=bool(normalized.get("is_text_like")),
         is_slider_matrix=bool(normalized.get("is_slider_matrix")),
         has_jump=bool(normalized.get("has_jump")),
-        jump_rules=_normalize_jump_rules(normalized.get("jump_rules")),
+        jump_rules=jump_rules,
         has_display_condition=bool(normalized.get("has_display_condition")),
-        display_conditions=_normalize_dict_list(normalized.get("display_conditions")),
+        display_conditions=display_conditions,
         has_dependent_display_logic=bool(normalized.get("has_dependent_display_logic")),
-        controls_display_targets=_normalize_dict_list(normalized.get("controls_display_targets")),
-        logic_parse_status=_infer_logic_parse_status(normalized),
+        controls_display_targets=controls_display_targets,
+        logic_parse_status=_infer_logic_parse_status(normalized, bool(jump_rules or display_conditions or controls_display_targets)),
         question_media=_normalize_question_media_list(normalized.get("question_media")),
         slider_min=normalized.get("slider_min"),
         slider_max=normalized.get("slider_max"),

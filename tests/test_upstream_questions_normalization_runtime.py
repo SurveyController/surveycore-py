@@ -117,6 +117,11 @@ class TestNormalizationRuntime:
         assert ctx.question_config_index_map[12] == ("location", -1)
         assert ctx.location_parts[12] == ["北京", "北京", "东城区"]
 
+    def test_configure_probabilities_preserves_legacy_numeric_dimension(self) -> None:
+        ctx = ExecutionConfig()
+        configure_probabilities([QuestionEntry("scale", -1, dimension=cast(Any, 123))], ctx)
+        assert ctx.question_dimension_map == {1: "123"}
+
     def test_configure_probabilities_builds_provider_question_mapping(self) -> None:
         ctx: ExecutionConfig = cast(ExecutionConfig, SimpleNamespace())
         entries = [
