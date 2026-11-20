@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
 
@@ -80,7 +79,8 @@ class TestAsyncStatusBus:
 
 class TestAsyncRunContext:
     @pytest.mark.asyncio
-    async def test_wait_if_paused_exits_after_pause_cleared(self) -> None:
+    @pytest.mark.parametrize("release_pause", [True, False], ids=["resume", "stop"])
+    async def test_wait_if_paused_blocks_until_resume_or_stop(self, release_pause: bool) -> None:
         stop_event = asyncio.Event()
         pause_event = asyncio.Event()
         pause_event.set()
@@ -90,12 +90,16 @@ class TestAsyncRunContext:
             pause_event=pause_event,
         )
 
-        async def _release_pause() -> None:
-            await asyncio.sleep(0.01)
-            pause_event.clear()
+        async with asyncio.TaskGroup() as group:
+            waiter = group.create_task(ctx.wait_if_paused())
+            await asyncio.sleep(0)
+            assert not waiter.done()
 
-        await asyncio.gather(ctx.wait_if_paused(), _release_pause())
-        assert not pause_event.is_set()
+            if release_pause:
+                pause_event.clear()
+            else:
+                stop_event.set()
+            await asyncio.wait_for(waiter, timeout=1)
 
     def test_emit_copies_payload_before_dispatch(self) -> None:
         captured: list[dict[str, object]] = []
@@ -111,24 +115,6 @@ class TestAsyncRunContext:
         payload["value"] = 2
 
         assert captured == [{"value": 1}]
-
-    @pytest.mark.asyncio
-    async def test_wait_if_paused_returns_when_stop_requested(self) -> None:
-        stop_event = asyncio.Event()
-        pause_event = asyncio.Event()
-        pause_event.set()
-        ctx = AsyncRunContext(
-            state=ExecutionState(),
-            stop_event=stop_event,
-            pause_event=pause_event,
-        )
-
-        async def _request_stop() -> None:
-            await asyncio.sleep(0.01)
-            stop_event.set()
-
-        await asyncio.gather(ctx.wait_if_paused(), _request_stop())
-        assert ctx.stop_requested() is True
 
 
 class TestThreadEventProxy:
@@ -169,40 +155,15 @@ class TestThreadEventProxy:
 
         assert proxy.wait(timeout=0.1) is True
 
-    def test_wait_uses_run_coroutine_threadsafe_result(self, monkeypatch) -> None:
-        loop = asyncio.new_event_loop()
+    @pytest.mark.asyncio
+    async def test_wait_returns_false_when_unset_event_times_out(self) -> None:
+        event = asyncio.Event()
+        proxy = ThreadEventProxy(event, loop=asyncio.get_running_loop())
+
         try:
-            event = asyncio.Event()
-            proxy = ThreadEventProxy(event, loop=loop)
-            future: Future[bool] = Future()
-            future.set_result(True)
-
-            def _fake_run_coroutine_threadsafe(coro, _loop):
-                coro.close()
-                return future
-
-            monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", _fake_run_coroutine_threadsafe)
-
-            assert proxy.wait(timeout=0.1) is True
+            assert not await asyncio.wait_for(asyncio.to_thread(proxy.wait, 0.01), timeout=1)
         finally:
-            loop.close()
-
-    def test_wait_returns_false_after_timeout(self, monkeypatch) -> None:
-        loop = asyncio.new_event_loop()
-        try:
-            proxy = ThreadEventProxy(asyncio.Event(), loop=loop)
-            future: Future[bool] = Future()
-            future.set_result(False)
-
-            def _fake_run_coroutine_threadsafe(coro, _loop):
-                coro.close()
-                return future
-
-            monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", _fake_run_coroutine_threadsafe)
-
-            assert proxy.wait(timeout=0.01) is False
-        finally:
-            loop.close()
+            event.set()
 
     @pytest.mark.asyncio
     async def test_wait_rejects_call_on_bound_event_loop_thread(self) -> None:

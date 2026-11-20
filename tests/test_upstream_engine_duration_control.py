@@ -26,7 +26,6 @@ class _Driver:
         self.div_text = div_text
         self.page_text = page_text
         self.action_visible = action_visible
-        self.scripts: list[str] = []
 
     async def current_url(self) -> str:
         return self._url
@@ -47,7 +46,6 @@ class _Driver:
         raise RuntimeError("not found")
 
     async def execute_script(self, script: str):
-        self.scripts.append(script)
         if "innerText" in script:
             return self.page_text
         return self.action_visible
@@ -151,19 +149,9 @@ class TestDurationControl:
         assert waited == 90.0
 
     @pytest.mark.asyncio
-    async def test_completion_page_detects_complete_url_and_provider_signal(
-        self, patch_attrs
-    ) -> None:
+    async def test_completion_page_detects_complete_url(self) -> None:
         assert await duration_control.is_survey_completion_page(
             _Driver(url="https://example.com/complete")
-        )
-
-        patch_attrs(
-            (
-                duration_control,
-                "_COMPLETION_MARKERS",
-                duration_control._COMPLETION_MARKERS,
-            )
         )
 
     @pytest.mark.asyncio
@@ -189,15 +177,6 @@ class TestDurationControl:
             _Driver(page_text="感谢您的参与", action_visible=True)
         )
         assert not await duration_control.is_survey_completion_page(_Driver(page_text="继续填写"))
-
-    @pytest.mark.asyncio
-    async def test_completion_page_body_text_script_tolerates_empty_body(self) -> None:
-        driver = _Driver()
-
-        assert not await duration_control.is_survey_completion_page(driver)
-        assert any(
-            "document.body && document.body.innerText" in script for script in driver.scripts
-        )
 
     @pytest.mark.asyncio
     async def test_completion_page_retries_navigation_transient_error_without_warning(

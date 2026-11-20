@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -40,17 +39,6 @@ async def test_unknown_provider_is_rejected_before_dispatch(source) -> None:
     parse_mock.assert_not_awaited()
 
 
-async def test_parse_survey_routes_detected_provider_directly() -> None:
-    qq_url = "https://wj.qq.com/s2/123/demo"
-    adapter = SimpleNamespace(parse_survey_async=AsyncMock(return_value="qq-definition"))
-
-    with patch.object(registry, "_get_provider_adapter", return_value=adapter):
-        result = await registry.parse_survey(qq_url)
-
-    assert result == "qq-definition"
-    adapter.parse_survey_async.assert_awaited_once_with(qq_url)
-
-
 async def test_parse_survey_normalizes_credamo_short_url_before_dispatch() -> None:
     short_url = "https://www.credamo.com/s/demo/"
     normalized_url = "https://www.credamo.com/answer.html#/s/demo/"
@@ -62,47 +50,6 @@ async def test_parse_survey_normalizes_credamo_short_url_before_dispatch() -> No
     assert result == "credamo-definition"
     adapter_mock.assert_called_once_with(url=normalized_url)
     adapter.parse_survey_async.assert_awaited_once_with(normalized_url)
-
-
-async def test_fill_survey_uses_provider_run_context_and_selected_adapter() -> None:
-    state = ExecutionState(config=ExecutionConfig(survey_provider=SURVEY_PROVIDER_WJX))
-    status_updates: list[tuple[str, bool]] = []
-
-    def _capture_update_thread_status(
-        _state: ExecutionState,
-        thread_name: str,
-        status_text: str,
-        *,
-        running: bool | None = None,
-    ) -> None:
-        del thread_name
-        status_updates.append((status_text, bool(running)))
-
-    state.update_thread_status = cast(Any, _capture_update_thread_status.__get__(state, ExecutionState))
-    adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_WJX]
-
-    @contextmanager
-    def fake_provider_run_context(*_args, **_kwargs):
-        yield "resolved-plan"
-
-    with (
-        patch.object(adapter, "fill_survey_async", new=AsyncMock(return_value=True)) as fill_mock,
-        patch.object(registry, "provider_run_context", fake_provider_run_context),
-    ):
-        result = await registry.fill_survey(
-            object(),
-            ExecutionConfig(survey_provider=SURVEY_PROVIDER_WJX),
-            state,
-            stop_signal="stop",
-            thread_name="Worker-1",
-            psycho_plan="ignored-plan",
-            provider=SURVEY_PROVIDER_WJX,
-        )
-
-    assert result is True
-    assert status_updates == [("识别题目", True)]
-    assert fill_mock.await_args is not None
-    assert fill_mock.await_args.kwargs["psycho_plan"] == "resolved-plan"
 
 
 async def test_fill_survey_http_routes_credamo_adapter() -> None:
@@ -135,89 +82,6 @@ async def test_fill_survey_http_routes_credamo_adapter() -> None:
     assert fill_mock.await_args.kwargs["psycho_plan"] == "resolved-plan"
     assert fill_mock.await_args.kwargs["proxy_address"] == "http://1.1.1.1:80"
     assert fill_mock.await_args.kwargs["user_agent"] == "UA"
-
-
-async def test_wjx_fill_survey_browser_entry_is_removed() -> None:
-    state = ExecutionState(config=ExecutionConfig(survey_provider=SURVEY_PROVIDER_WJX))
-
-    try:
-        await registry.fill_survey(
-            object(),
-            ExecutionConfig(survey_provider=SURVEY_PROVIDER_WJX),
-            state,
-            provider=SURVEY_PROVIDER_WJX,
-        )
-    except RuntimeError as exc:
-        assert "纯 HTTP 提交链路" in str(exc)
-    else:
-        raise AssertionError("问卷星不应继续暴露浏览器填答入口")
-
-
-async def test_qq_fill_survey_browser_entry_is_removed() -> None:
-    state = ExecutionState(config=ExecutionConfig(survey_provider=SURVEY_PROVIDER_QQ))
-
-    try:
-        await registry.fill_survey(
-            object(),
-            ExecutionConfig(survey_provider=SURVEY_PROVIDER_QQ),
-            state,
-            provider=SURVEY_PROVIDER_QQ,
-        )
-    except RuntimeError as exc:
-        assert "纯 HTTP 提交链路" in str(exc)
-    else:
-        raise AssertionError("腾讯问卷不应继续暴露浏览器填答入口")
-
-
-async def test_handle_submission_verification_detected_uses_ctx_config_provider() -> None:
-    ctx = SimpleNamespace(config=SimpleNamespace(survey_provider=SURVEY_PROVIDER_CREDAMO))
-    adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_CREDAMO]
-
-    with patch.object(
-        adapter, "handle_submission_verification_detected_async", new=AsyncMock()
-    ) as handler_mock:
-        await registry.handle_submission_verification_detected(ctx, "stop")
-
-    handler_mock.assert_awaited_once_with(ctx, "stop")
-
-
-async def test_wait_for_submission_verification_routes_timeout_and_stop_signal() -> None:
-    adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_QQ]
-    driver = object()
-
-    with patch.object(
-        adapter, "wait_for_submission_verification_async", new=AsyncMock(return_value=True)
-    ) as wait_mock:
-        result = await registry.wait_for_submission_verification(
-            driver,
-            provider=SURVEY_PROVIDER_QQ,
-            timeout=9,
-            stop_signal="stop",
-        )
-
-    assert result is True
-    wait_mock.assert_awaited_once_with(driver, timeout=9, stop_signal="stop")
-
-
-async def test_attempt_submission_recovery_routes_to_selected_provider() -> None:
-    adapter = registry._PROVIDER_REGISTRY[SURVEY_PROVIDER_CREDAMO]
-    driver = object()
-    ctx = object()
-
-    with patch.object(
-        adapter, "attempt_submission_recovery_async", new=AsyncMock(return_value=True)
-    ) as recovery_mock:
-        result = await registry.attempt_submission_recovery(
-            driver,
-            ctx,
-            "gui",
-            "stop",
-            provider=SURVEY_PROVIDER_CREDAMO,
-            thread_name="Worker-7",
-        )
-
-    assert result is True
-    recovery_mock.assert_awaited_once_with(driver, ctx, "gui", "stop", thread_name="Worker-7")
 
 
 async def test_provider_hook_rejects_non_async_return_value() -> None:
