@@ -511,10 +511,14 @@ def test_credamo_choice_payload_includes_option_fill_text() -> None:
     ]
 
 
-def test_credamo_builder_includes_static_option_fill_text() -> None:
+@pytest.mark.parametrize("configured_fill", ["__RANDOM_NAME__", ["__RANDOM_NAME__"]])
+def test_credamo_builder_includes_static_option_fill_text(configured_fill, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "surveycore.core.questions.utils.generate_random_chinese_name", lambda: "张三"
+    )
     config = ExecutionConfig(survey_provider="credamo")
     config.single_prob = [[0.0, 1.0]]
-    config.single_option_fill_texts = [[None, "__RANDOM_NAME__"]]
+    config.single_option_fill_texts = [[None, configured_fill]]
     question = SurveyQuestionMeta(
         num=1,
         title="请选择",
@@ -534,8 +538,7 @@ def test_credamo_builder_includes_static_option_fill_text() -> None:
 
     assert action is not None
     assert action.selected_indices == (1,)
-    assert action.option_fill_texts
-    assert action.option_fill_texts[0][0] == 1
+    assert action.option_fill_texts == ((1, "张三"),)
 
 
 def test_credamo_builder_does_not_randomize_empty_multiple_probabilities() -> None:
@@ -1778,12 +1781,15 @@ async def test_wjx_builder_uses_prefilled_free_ai_text_answer(monkeypatch) -> No
     assert action.text_values == ("预填答案",)
 
 
+@pytest.mark.parametrize("configured_fill", ["__AI_FILL__", ["__AI_FILL__"]])
 @pytest.mark.asyncio
-async def test_wjx_builder_uses_prefilled_free_ai_option_fill_answer(monkeypatch) -> None:
+async def test_wjx_builder_uses_prefilled_free_ai_option_fill_answer(
+    monkeypatch, configured_fill,
+) -> None:
     config = ExecutionConfig(survey_provider="wjx")
     config.question_config_index_map = {1: ("single", 0)}
     config.single_prob = [[1.0, 0.0]]
-    config.single_option_fill_texts = [["__AI_FILL__", None]]
+    config.single_option_fill_texts = [[configured_fill, None]]
     state = ExecutionState(config=config)
     state.set_free_ai_option_fill_prefill_answers("slot-opt-1", {(1, 0): "补充说明"})
     question = SurveyQuestionMeta(

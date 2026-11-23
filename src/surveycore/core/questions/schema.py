@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional, Union
 
 from surveycore.logging.log_utils import log_suppressed_exception
+from surveycore.models import OptionFillText
 
 _TEXT_RANDOM_NAME_TOKEN = "__RANDOM_NAME__"
 _TEXT_RANDOM_MOBILE_TOKEN = "__RANDOM_MOBILE__"
@@ -95,7 +96,7 @@ class QuestionEntry:
     multi_text_blank_int_ranges: List[List[int]] = field(default_factory=list)
     text_random_mode: str = _TEXT_RANDOM_NONE
     text_random_int_range: List[int] = field(default_factory=list)
-    option_fill_texts: Optional[List[Optional[str]]] = None
+    option_fill_texts: list[OptionFillText] | None = None
     fillable_option_indices: Optional[List[int]] = None
     attached_option_selects: List[dict] = field(default_factory=list)
     is_location: bool = False

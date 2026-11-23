@@ -18,6 +18,7 @@ from surveycore.core.questions.schema import (
     _TEXT_RANDOM_NONE,
     QuestionEntry,
 )
+from surveycore.core.questions.utils import normalize_option_fill_texts
 from surveycore.providers.common import (
     SURVEY_PROVIDER_WJX,
     detect_survey_provider,
@@ -96,22 +97,6 @@ def _infer_multi_text_blank_modes(q: SurveyQuestionInput, blank_count: int) -> l
         else:
             modes.append(_TEXT_RANDOM_NONE)
     return modes
-
-
-def _filter_option_fill_texts_to_fillable(
-    option_fill_texts: Any,
-    option_count: int,
-    fillable_indices: list[int],
-) -> list[str | None] | None:
-    if not isinstance(option_fill_texts, list) or not fillable_indices:
-        return None
-    fillable_set = set(fillable_indices)
-    normalized: list[str | None] = []
-    for option_index in range(option_count):
-        raw_value = option_fill_texts[option_index] if option_index < len(option_fill_texts) else None
-        text = str(raw_value or "").strip()
-        normalized.append(text if option_index in fillable_set and text else None)
-    return normalized if any(normalized) else None
 
 
 def _default_entry(
@@ -262,10 +247,10 @@ def build_default_question_entries(
                 entry.option_count,
                 existing.fillable_option_indices if existing is not None else None,
             )
-            entry.option_fill_texts = _filter_option_fill_texts_to_fillable(
+            entry.option_fill_texts = normalize_option_fill_texts(
                 existing.option_fill_texts if existing is not None else None,
                 entry.option_count,
-                entry.fillable_option_indices,
+                fillable_indices=set(entry.fillable_option_indices),
             )
         if kind == "single":
             entry.attached_option_selects = normalize_attached_option_selects(

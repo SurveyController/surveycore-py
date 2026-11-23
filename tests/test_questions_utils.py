@@ -121,9 +121,12 @@ def test_element_text_and_option_fill_normalization() -> None:
     assert utils.get_fill_text_from_config([None, " 补充 "], 1) == "补充"
     assert utils.get_fill_text_from_config([None], 2) is None
     assert utils.get_fill_text_from_config(None, 0) is None
+    assert utils.get_fill_text_from_config([["", " 单条 "]], 0) == "单条"
+    assert utils.get_fill_text_from_config([["", " "]], 0) is None
 
     assert utils.normalize_option_fill_texts([" 甲 ", None], 3) == ["甲", None, None]
     assert utils.normalize_option_fill_texts(["", None], 2) is None
+    assert utils.normalize_option_fill_texts([[], [" "]], 2) is None
     assert utils.normalize_option_fill_texts(None, 2) is None
 
 

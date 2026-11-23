@@ -9,6 +9,7 @@ from surveycore.core.reverse_fill.schema import ReverseFillRuntimeState, Reverse
 from surveycore.core.task.distribution_state import DistributionRuntimeMixin
 from surveycore.core.task.progress_state import ThreadProgressMixin, ThreadProgressState
 from surveycore.core.task.reverse_fill_state import ReverseFillRuntimeMixin
+from surveycore.models import OptionFillText
 from surveycore.providers.contracts import SurveyQuestionMeta
 
 
@@ -35,10 +36,10 @@ class ExecutionConfig:
     multi_text_blank_modes: List[List[str]] = field(default_factory=list)
     multi_text_blank_ai_flags: List[List[bool]] = field(default_factory=list)
     multi_text_blank_int_ranges: List[List[List[int]]] = field(default_factory=list)
-    single_option_fill_texts: List[Optional[List[Optional[str]]]] = field(default_factory=list)
+    single_option_fill_texts: list[list[OptionFillText] | None] = field(default_factory=list)
     single_attached_option_selects: List[List[Dict[str, Any]]] = field(default_factory=list)
-    droplist_option_fill_texts: List[Optional[List[Optional[str]]]] = field(default_factory=list)
-    multiple_option_fill_texts: List[Optional[List[Optional[str]]]] = field(default_factory=list)
+    droplist_option_fill_texts: list[list[OptionFillText] | None] = field(default_factory=list)
+    multiple_option_fill_texts: list[list[OptionFillText] | None] = field(default_factory=list)
     answer_rules: List[Dict[str, Any]] = field(default_factory=list)
     answer_generator: Optional[Callable[..., Any]] = field(default=None, repr=False)
     question_entries: List[Any] = field(default_factory=list)

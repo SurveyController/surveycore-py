@@ -5,11 +5,12 @@ import os
 import random
 from datetime import date, timedelta
 from functools import lru_cache
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Collection, List, Optional, Sequence, Tuple, Union
 
 from surveycore.app.config import DEFAULT_FILL_TEXT
 from surveycore.app.runtime_paths import get_resource_path
 from surveycore.logging.log_utils import log_suppressed_exception
+from surveycore.models import OptionFillText
 
 _KNOWN_NON_TEXT_QUESTION_TYPES = {"3", "4", "5", "6", "7", "8", "11"}
 RANDOM_INT_TOKEN_PREFIX = "__RANDOM_INT__:"
@@ -354,15 +355,23 @@ def extract_text_from_element(element) -> str:
     return text
 
 
-def get_fill_text_from_config(fill_entries: Optional[Sequence[Optional[str]]], option_index: int) -> Optional[str]:
-    
-    if not fill_entries or option_index < 0 or option_index >= len(fill_entries):
-        return None
-    value = fill_entries[option_index]
+def _normalize_option_fill_text(value: OptionFillText) -> OptionFillText:
     if value is None:
         return None
-    text = str(value).strip()
-    return text or None
+    if isinstance(value, list):
+        return [text for candidate in value if (text := candidate.strip())] or None
+    return value.strip() or None
+
+
+def get_fill_text_from_config(
+    fill_entries: Sequence[OptionFillText] | None, option_index: int,
+) -> str | None:
+    if not fill_entries or option_index < 0 or option_index >= len(fill_entries):
+        return None
+    value = _normalize_option_fill_text(fill_entries[option_index])
+    if isinstance(value, list):
+        return random.choice(value) if len(value) > 1 else value[0]
+    return value
 
 
 def normalize_single_like_prob_config(prob_config: Union[List[float], int, float, None], option_count: int) -> Union[List[float], int]:
@@ -401,25 +410,35 @@ def normalize_droplist_probs(prob_config: Union[List[float], int, float, None], 
         return [1.0 / option_count] * option_count
 
 
-def normalize_option_fill_texts(option_texts: Optional[List[Optional[str]]], option_count: int) -> Optional[List[Optional[str]]]:
-    
+def validate_option_fill_texts(value: object, label: str = "option_fill_texts") -> None:
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise ValueError(f"{label}必须是按选项排列的数组")
+    for index, item in enumerate(value):
+        if item is None or isinstance(item, str):
+            continue
+        if not isinstance(item, list) or any(not isinstance(candidate, str) for candidate in item):
+            raise ValueError(f"{label}[{index}]必须是字符串、字符串数组或 null")
+
+
+def normalize_option_fill_texts(
+    option_texts: list[OptionFillText] | None,
+    option_count: int,
+    *,
+    fillable_indices: Collection[int] | None = None,
+) -> list[OptionFillText] | None:
+    validate_option_fill_texts(option_texts)
     if not option_texts:
         return None
     normalized_count = option_count if option_count > 0 else len(option_texts)
-    normalized: List[Optional[str]] = []
-    for idx in range(normalized_count):
-        raw = option_texts[idx] if idx < len(option_texts) else None
-        if raw is None:
-            normalized.append(None)
-            continue
-        try:
-            text_value = str(raw).strip()
-        except Exception:
-            text_value = ""
-        normalized.append(text_value or None)
-    if not any(value for value in normalized):
-        return None
-    return normalized
+    normalized = [
+        _normalize_option_fill_text(option_texts[index])
+        if index < len(option_texts) and (fillable_indices is None or index in fillable_indices)
+        else None
+        for index in range(normalized_count)
+    ]
+    return normalized if any(normalized) else None
 
 
 def _prob_config_is_unset(value: Any) -> bool:

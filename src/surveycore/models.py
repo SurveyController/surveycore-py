@@ -4,6 +4,8 @@ from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+OptionFillText = str | list[str] | None
+
 
 class AnswerGenerator(Protocol):
     def __call__(self, prompt: str, **kwargs: object) -> str | Sequence[str] | Awaitable[str | Sequence[str]]:
@@ -69,6 +71,12 @@ class SurveyDefinition:
 
 @dataclass
 class QuestionConfig:
+    """Configure a question. Each option_fill_texts item maps to one option by index.
+
+    Use a list of strings to sample one candidate, a string for a single answer,
+    or None for no configured answer.
+    """
+
     question_type: str
     probabilities: Any = None
     texts: list[str] | None = None
@@ -86,7 +94,7 @@ class QuestionConfig:
     multi_text_blank_int_ranges: list[list[int]] = field(default_factory=list)
     text_random_mode: str = "none"
     text_random_int_range: list[int] = field(default_factory=list)
-    option_fill_texts: list[str | None] | None = None
+    option_fill_texts: list[OptionFillText] | None = None
     fillable_option_indices: list[int] | None = None
     attached_option_selects: list[dict[str, Any]] = field(default_factory=list)
     is_location: bool = False

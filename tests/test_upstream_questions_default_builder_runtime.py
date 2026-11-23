@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from surveycore.core.questions.default_builder import build_default_question_entries
 from surveycore.core.questions.schema import _TEXT_RANDOM_MOBILE, _TEXT_RANDOM_NONE, QuestionEntry
 from surveycore.providers.contracts import SurveyQuestionMeta
@@ -78,7 +80,13 @@ class TestDefaultBuilderRuntime:
             _TEXT_RANDOM_NONE,
         ]
 
-    def test_build_default_question_entries_reuses_existing_by_provider_num_and_title(self) -> None:
+    @pytest.mark.parametrize("raw_fill, expected_fill", [
+        ("其他", "其他"),
+        ([" 补充一 ", " ", "补充二"], ["补充一", "补充二"]),
+    ])
+    def test_build_default_question_entries_reuses_existing_by_provider_num_and_title(
+        self, raw_fill, expected_fill,
+    ) -> None:
         existing_by_provider = QuestionEntry(
             "single",
             [0, 1],
@@ -89,7 +97,7 @@ class TestDefaultBuilderRuntime:
             provider_question_id="provider-1",
             distribution_mode="custom",
             custom_weights=[0, 1],
-            option_fill_texts=["", "其他"],
+            option_fill_texts=[["已不可填"], raw_fill],
             fillable_option_indices=[1],
             attached_option_selects=[{"option_index": 1, "weights": [1, 0]}],
         )
@@ -134,7 +142,7 @@ class TestDefaultBuilderRuntime:
 
         assert entries[0].probabilities == [0, 1]
         assert entries[0].custom_weights == [0, 1]
-        assert entries[0].option_fill_texts == [None, "其他"]
+        assert entries[0].option_fill_texts == [None, expected_fill]
         assert entries[0].fillable_option_indices == [1]
         assert entries[0].attached_option_selects == [
             {

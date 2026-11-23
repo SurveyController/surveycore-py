@@ -4,6 +4,7 @@ import json
 from dataclasses import fields
 from typing import Any
 
+from .core.questions.utils import validate_option_fill_texts
 from .errors import ConfigError
 from .models import QuestionConfig, RunConfig
 
@@ -104,6 +105,10 @@ def deserialize_config(payload: Any) -> RunConfig:
             raise ConfigError(f"questions[{index}].question_type 必须是非空字符串")
         if "probabilities" in raw and raw["probabilities"] is not None and not isinstance(raw["probabilities"], (list, int, float)):
             raise ConfigError(f"questions[{index}].probabilities 类型无效")
+        try:
+            validate_option_fill_texts(raw.get("option_fill_texts"), f"questions[{index}].option_fill_texts")
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
         questions.append(QuestionConfig(**raw))
     target = payload.get("target", 1)
     concurrency = payload.get("concurrency", 1)

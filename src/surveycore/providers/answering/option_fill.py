@@ -8,6 +8,7 @@ from surveycore.core.questions.utils import (
     get_fill_text_from_config,
     resolve_dynamic_text_token,
 )
+from surveycore.models import OptionFillText
 
 
 def option_requires_fill(question: Any, option_index: int) -> bool:
@@ -46,16 +47,13 @@ def option_fill_text_map(option_fill_texts: Sequence[tuple[int, str]] | None) ->
 
 
 def resolve_static_option_fill_text(
-    fill_entries: Optional[Sequence[Optional[str]]],
+    fill_entries: Sequence[OptionFillText] | None,
     option_index: int,
     *,
     question: Any = None,
 ) -> Optional[str]:
-    raw_value = get_fill_text_from_config(fill_entries, option_index)
-    if raw_value is None:
-        return default_missing_option_fill(question, option_index, None)
-    text = str(raw_value).strip()
-    if not text:
+    text = get_fill_text_from_config(fill_entries, option_index)
+    if text is None:
         return default_missing_option_fill(question, option_index, None)
     if text == OPTION_FILL_AI_TOKEN:
         return DEFAULT_FILL_TEXT

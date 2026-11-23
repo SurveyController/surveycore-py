@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from surveycore import QuestionConfig, RunConfig, SurveyClient
+from surveycore.config import dumps_config, loads_config
+from surveycore.core.questions import utils as question_utils
 from surveycore.core.task import ExecutionConfig, ExecutionState
 from surveycore.credamo.provider import answering_builders as credamo_builders
 from surveycore.providers.contracts import SurveyQuestionMeta
@@ -15,6 +19,60 @@ def _state(provider: str, entry_type: str, **config_values) -> ExecutionState:
     for name, value in config_values.items():
         setattr(config, name, value)
     return ExecutionState(config=config)
+
+
+@pytest.mark.parametrize(
+    ("provider", "url"),
+    [
+        ("wjx", "https://www.wjx.cn/vj/example.aspx"),
+        ("qq", "https://wj.qq.com/s2/demo"),
+        ("credamo", "https://www.credamo.com/s/demo/"),
+    ],
+)
+@pytest.mark.parametrize("kind", ["single", "dropdown", "multiple"])
+@pytest.mark.asyncio
+async def test_choice_option_fill_samples_each_selected_options_candidates(
+    monkeypatch, provider, url, kind
+) -> None:
+    multiple = kind == "multiple"
+    question = SurveyQuestionMeta(
+        num=1, title="补充填空", provider_question_id="q1", options=3,
+        option_texts=["甲", "乙", "丙"], fillable_options=[0, 1, 2],
+    )
+    config = RunConfig(
+        url=url,
+        provider=provider,
+        questions=[QuestionConfig(
+            kind,
+            probabilities=[100, 0, 100 if multiple else 0],
+            option_fill_texts=[[" 甲一 ", "", "甲二"], ["未选一", "未选二"], ["丙一", "丙二"]],
+        )],
+    )
+    async with httpx.AsyncClient() as http:
+        execution = SurveyClient(http_client=http)._execution_config(
+            loads_config(dumps_config(config)), None,
+        )
+    state = ExecutionState(config=execution)
+    monkeypatch.setattr(question_utils.random, "random", lambda: 0.5)
+
+    for indices, expected in [
+        ((0, 1), ((0, "甲一"), (2, "丙二"))),
+        ((1, 0), ((0, "甲二"), (2, "丙一"))),
+    ]:
+        picks = iter(indices if multiple else indices[:1])
+        monkeypatch.setattr(question_utils.random, "choice", lambda values, picks=picks: values[next(picks)])
+        if provider == "credamo":
+            action = credamo_builders.build_answer_action(
+                root_index=0, question_num=1, entry_type=kind, config_index=0,
+                config=execution, question_meta=question,
+            )
+        else:
+            builders = wjx_builders if provider == "wjx" else qq_builders
+            action = await builders.build_answer_action(None, question, state, psycho_plan=None)
+
+        assert action is not None
+        assert action.selected_indices == ((0, 2) if multiple else (0,))
+        assert action.option_fill_texts == (expected if multiple else expected[:1])
 
 
 @pytest.mark.asyncio
