@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from collections import OrderedDict
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 import surveycore.network.http as http_client
 from surveycore.app.config import DEFAULT_HTTP_HEADERS, DEFAULT_USER_AGENT
@@ -34,6 +34,11 @@ from surveycore.tencent.provider.parser import (
     _qq_score_labels,
     _request_qq_api,
     _standardize_qq_questions,
+)
+from surveycore.tencent.provider.question_types import (
+    QQ_QUESTION_TYPES,
+    QqAnswerEncoding,
+    qq_provider_type,
 )
 
 
@@ -253,7 +258,7 @@ def _choice_question_answer(raw_question: Mapping[str, Any], action: AnswerActio
         blanks.append(_option_blank_answer(option, fill_text))
     return {
         "id": str(raw_question.get("id") or action.question_id).strip(),
-        "type": str(raw_question.get("type") or "").strip(),
+        "type": raw_question["type"],
         "blanks": blanks,
         "options": options,
     }
@@ -263,7 +268,7 @@ def _text_question_answer(raw_question: Mapping[str, Any], action: AnswerAction)
     text_values = [str(item or "").strip() for item in action.text_values if str(item or "").strip()]
     return {
         "id": str(raw_question.get("id") or action.question_id).strip(),
-        "type": str(raw_question.get("type") or "text").strip(),
+        "type": raw_question["type"],
         "text": "\n".join(text_values),
     }
 
@@ -271,10 +276,12 @@ def _text_question_answer(raw_question: Mapping[str, Any], action: AnswerAction)
 def _matrix_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
     rows = raw_question.get("sub_titles")
     question_id = str(raw_question.get("id") or action.question_id).strip()
-    provider_type = raw_question["type"]
+    provider_type = qq_provider_type(raw_question)
+    definition = QQ_QUESTION_TYPES.get(provider_type)
+    encoding = definition.answer_encoding if definition else None
     label = f"腾讯问卷第{action.question_num}题"
-    options = _option_items(raw_question) if provider_type == "matrix_radio" else []
-    scores = _qq_score_labels(raw_question) if provider_type == "matrix_star" else []
+    options = _option_items(raw_question) if encoding == "matrix_options" else []
+    scores = _qq_score_labels(raw_question) if encoding == "matrix_score_text" else []
     if not options and not scores:
         raise RuntimeError(f"{label}没有可提交的矩阵列")
     if not isinstance(rows, list) or not rows or len(rows) != len(action.matrix_indices):
@@ -294,7 +301,7 @@ def _matrix_question_answer(raw_question: Mapping[str, Any], action: AnswerActio
             groups.append({"id": row["id"], "options": [option]})
         else:
             groups.append({"id": row["id"], "text": scores[index]})
-    return {"id": question_id, "type": provider_type, "groups": groups}
+    return {"id": question_id, "type": raw_question["type"], "groups": groups}
 
 
 def _chained_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
@@ -304,23 +311,30 @@ def _chained_question_answer(raw_question: Mapping[str, Any], action: AnswerActi
     ids, texts = paths[action.selected_indices[0]]
     return {
         "id": str(raw_question.get("id") or action.question_id).strip(),
-        "type": "chained_selects",
+        "type": raw_question["type"],
         "id_list": list(ids),
         "text_list": list(texts),
     }
 
 
+_ANSWER_ENCODERS: dict[QqAnswerEncoding, Callable[[Mapping[str, Any], AnswerAction], dict[str, Any]]] = {
+    "choice_options": _choice_question_answer,
+    "text": _text_question_answer,
+    "score_text": _score_question_answer,
+    "matrix_options": _matrix_question_answer,
+    "matrix_score_text": _matrix_question_answer,
+    "chained_path": _chained_question_answer,
+}
+
+
 def _question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
-    provider_type = str(raw_question.get("type") or "").strip()
-    if action.kind == "text" or provider_type in {"text", "textarea", "number"}:
-        return _text_question_answer(raw_question, action)
-    if provider_type in {"star", "nps"}:
-        return _score_question_answer(raw_question, action)
-    if provider_type == "chained_selects":
-        return _chained_question_answer(raw_question, action)
-    if action.kind == "matrix" or provider_type.startswith("matrix_"):
-        return _matrix_question_answer(raw_question, action)
-    return _choice_question_answer(raw_question, action)
+    provider_type = qq_provider_type(raw_question)
+    if not provider_type:
+        raise RuntimeError(f"腾讯问卷第{action.question_num}题缺少腾讯题型 type")
+    definition = QQ_QUESTION_TYPES.get(provider_type)
+    if definition is None or definition.answer_encoding is None:
+        raise RuntimeError(f"腾讯问卷第{action.question_num}题没有可用的提交编码：{provider_type}")
+    return _ANSWER_ENCODERS[definition.answer_encoding](raw_question, action)
 
 
 def _record_action(ctx: ExecutionState, action: AnswerAction, thread_name: str = "") -> None:

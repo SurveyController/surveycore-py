@@ -10,34 +10,14 @@ import surveycore.network.http as http_client
 from surveycore.app.config import _HTML_SPACE_RE, DEFAULT_HTTP_HEADERS
 from surveycore.providers.common import SURVEY_PROVIDER_QQ
 from surveycore.providers.contracts import LOGIC_PARSE_STATUS_UNKNOWN
+from surveycore.tencent.provider.question_types import QQ_QUESTION_TYPES, qq_provider_type
 
-QQ_SUPPORTED_PROVIDER_TYPES = {
-    "radio",
-    "checkbox",
-    "select",
-    "text",
-    "textarea",
-    "nps",
-    "star",
-    "matrix_radio",
-    "matrix_star",
-    "chained_selects",
-}
-QQ_DESCRIPTION_PROVIDER_TYPES = {
-    "description",
-}
 QQ_PROVIDER_TYPE_TO_INTERNAL = {
-    "radio": "3",
-    "checkbox": "4",
-    "select": "7",
-    "text": "1",
-    "textarea": "1",
-    "nps": "5",
-    "star": "5",
-    "matrix_radio": "6",
-    "matrix_star": "6",
-    "chained_selects": "7",
+    name: definition.type_code
+    for name, definition in QQ_QUESTION_TYPES.items()
+    if definition.answer_encoding is not None
 }
+QQ_SUPPORTED_PROVIDER_TYPES = set(QQ_PROVIDER_TYPE_TO_INTERNAL)
 _QQ_TITLE_SUFFIX_RE = re.compile(r"(?:[-|｜]\s*)?腾讯问卷.*$", re.IGNORECASE)
 _QQ_URL_RE = re.compile(r"/s\d+/(\d+)/([A-Za-z0-9_-]+)/?$", re.IGNORECASE)
 _QQ_QUESTION_ID_TOKEN_RE = re.compile(r"\bq-[A-Za-z0-9_-]+\b", re.IGNORECASE)
@@ -387,8 +367,12 @@ async def _fetch_qq_survey_via_http(survey_id: str, hash_value: str) -> Tuple[Li
 
 
 def _qq_score_labels(question: Mapping[str, Any]) -> List[str]:
+    provider_type = qq_provider_type(question)
+    definition = QQ_QUESTION_TYPES.get(provider_type)
+    if definition is None or definition.default_score_start is None:
+        raise ValueError(f"腾讯题型没有评分范围：{provider_type}")
     raw_start = question.get("star_begin_num")
-    start = int(raw_start) if raw_start is not None else (0 if question.get("type") == "nps" else 1)
+    start = int(raw_start) if raw_start is not None else definition.default_score_start
     count = int(question.get("star_num") or 0)
     scores = [str(score) for score in range(start, start + count)]
     return scores[::-1] if question.get("revert_sort") else scores
@@ -422,9 +406,10 @@ def _qq_chained_paths(question: Mapping[str, Any]) -> List[Tuple[Tuple[str, ...]
 
 
 def _build_option_texts(question: Mapping[str, Any], provider_type: str) -> List[str]:
-    if provider_type in {"nps", "star", "matrix_star"}:
+    definition = QQ_QUESTION_TYPES.get(provider_type)
+    if definition is not None and definition.default_score_start is not None:
         return _qq_score_labels(question)
-    if provider_type == "chained_selects":
+    if definition is not None and definition.answer_encoding == "chained_path":
         return [" / ".join(map(_normalize_html_text, texts)) for _, texts in _qq_chained_paths(question)]
     raw_options = question.get("options")
     if not isinstance(raw_options, list):
@@ -461,9 +446,7 @@ def _option_payload_contains_fillblank(value: Any, *, depth: int = 0) -> bool:
     return bool(_QQ_FILLBLANK_TOKEN_RE.search(str(value or "")))
 
 
-def _build_fillable_option_indices(question: Mapping[str, Any], provider_type: str) -> List[int]:
-    if provider_type not in {"radio", "checkbox", "select"}:
-        return []
+def _build_fillable_option_indices(question: Mapping[str, Any]) -> List[int]:
     raw_options = question.get("options")
     if not isinstance(raw_options, list):
         return []
@@ -486,9 +469,7 @@ def _build_row_texts(question: Mapping[str, Any]) -> List[str]:
     return row_texts
 
 
-def _resolve_option_count(question: Mapping[str, Any], provider_type: str, option_texts: List[str]) -> int:
-    if provider_type in QQ_DESCRIPTION_PROVIDER_TYPES:
-        return 0
+def _resolve_option_count(question: Mapping[str, Any], option_texts: List[str]) -> int:
     if option_texts:
         return len(option_texts)
     raw_options = question.get("options")
@@ -907,35 +888,34 @@ def _standardize_qq_questions(questions: Sequence[Mapping[str, Any]]) -> List[Di
     page_map = _build_page_number_map(questions)
     normalized: List[Dict[str, Any]] = []
     for idx, question in enumerate(questions, start=1):
-        provider_type = str(question.get("type") or "").strip()
+        provider_type = qq_provider_type(question)
+        definition = QQ_QUESTION_TYPES.get(provider_type)
+        encoding = definition.answer_encoding if definition else None
+        is_description = definition is not None and encoding is None
         title = _normalize_html_text(str(question.get("title") or ""))
         description = _normalize_html_text(str(question.get("description") or ""))
         page_id = str(question.get("page_id") or "").strip()
         page_raw = question.get("page")
         page = page_map.get((page_id, str(page_raw or "").strip()), 1)
-        if provider_type == "chained_selects":
+        if encoding == "chained_path":
             levels = question.get("levels")
             if not isinstance(levels, list) or not levels or not all(isinstance(label, str) for label in levels):
                 raise ValueError(f"腾讯问卷第{idx}题缺少联动级别标题")
             page_raw = {"page": page_raw, "levels": levels.copy()}
         row_texts = _build_row_texts(question)
         option_texts = _build_option_texts(question, provider_type)
-        fillable_options = _build_fillable_option_indices(question, provider_type)
-        option_count = _resolve_option_count(question, provider_type, option_texts)
-        is_description = provider_type in QQ_DESCRIPTION_PROVIDER_TYPES
-        type_code = QQ_PROVIDER_TYPE_TO_INTERNAL.get(provider_type, "0") if not is_description else "0"
-        supported = provider_type in QQ_SUPPORTED_PROVIDER_TYPES or is_description
-        unsupported_reason = "" if supported else f"暂不支持腾讯题型：{provider_type or 'unknown'}"
-        is_text_like = provider_type in {"text", "textarea"} and not is_description
-        is_rating = provider_type in {"nps", "star"} and not is_description
-        multi_min_limit = question.get("min_length") if provider_type == "checkbox" else None
-        multi_max_limit = question.get("max_length") if provider_type == "checkbox" else None
+        fillable_options = _build_fillable_option_indices(question) if encoding == "choice_options" else []
+        option_count = 0 if is_description else _resolve_option_count(question, option_texts)
+        unsupported = definition is None
+        is_text_like = encoding == "text"
+        is_rating = encoding == "score_text"
+        has_selection_limits = definition is not None and definition.has_selection_limits
         normalized.append({
             "num": idx,
             "title": title,
             "display_num": None,
             "description": description,
-            "type_code": type_code,
+            "type_code": definition.type_code if definition else "0",
             "options": option_count,
             "rows": len(row_texts) if row_texts else 1,
             "row_texts": row_texts,
@@ -965,15 +945,15 @@ def _standardize_qq_questions(questions: Sequence[Mapping[str, Any]]) -> List[Di
             "slider_min": None,
             "slider_max": None,
             "slider_step": None,
-            "multi_min_limit": multi_min_limit,
-            "multi_max_limit": multi_max_limit,
+            "multi_min_limit": question.get("min_length") if has_selection_limits else None,
+            "multi_max_limit": question.get("max_length") if has_selection_limits else None,
             "provider": SURVEY_PROVIDER_QQ,
             "provider_question_id": str(question.get("id") or "").strip(),
             "provider_page_id": page_id,
             "provider_type": provider_type,
             "provider_page_raw": page_raw,
-            "unsupported": not supported,
-            "unsupported_reason": unsupported_reason,
+            "unsupported": unsupported,
+            "unsupported_reason": f"暂不支持腾讯题型：{provider_type or 'unknown'}" if unsupported else "",
             "required": bool(question.get("required", False)),
         })
     _attach_qq_logic_metadata(questions, normalized)

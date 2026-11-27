@@ -375,6 +375,26 @@ def test_qq_chained_answer_uses_matching_leaf_ids_and_texts() -> None:
         qq_http._question_answer(raw, AnswerAction(question_id="q-current", kind="select", selected_indices=(3,)))
 
 
+@pytest.mark.parametrize("provider_type", ["number", "matrix_checkbox", "description", "future_type"])
+def test_qq_answer_dispatch_rejects_non_answerable_types(provider_type: str) -> None:
+    action = AnswerAction(question_num=2, question_id="q2", kind="text", text_values=("123",))
+    with pytest.raises(RuntimeError, match=rf"第2题没有可用的提交编码：{provider_type}$"):
+        qq_http._question_answer({"id": "q2", "type": provider_type}, action)
+
+
+def test_qq_answer_dispatch_requires_upstream_type() -> None:
+    action = AnswerAction(question_num=2, question_id="q2", kind="text", text_values=("123",))
+    with pytest.raises(RuntimeError, match="第2题缺少腾讯题型 type"):
+        qq_http._question_answer({"id": "q2"}, action)
+
+
+def test_qq_answer_dispatch_uses_upstream_encoding_over_action_kind() -> None:
+    action = AnswerAction(question_num=2, question_id="q2", kind="text", scalar_value=0, text_values=("123",))
+    raw = {"id": "q2", "type": "nps", "star_num": 11}
+
+    assert qq_http._question_answer(raw, action) == {"id": "q2", "type": "nps", "text": "0"}
+
+
 def test_qq_matrix_radio_answer_rejects_missing_option_id() -> None:
     with pytest.raises(RuntimeError, match="缺少矩阵列 id"):
         qq_http._question_answer(

@@ -193,7 +193,9 @@ class TestTencentParser:
 
         third = normalized[2]
         assert third["unsupported"]
-        assert "暂不支持腾讯题型" in third["unsupported_reason"]
+        assert third["provider_type"] == "upload"
+        assert third["type_code"] == "0"
+        assert third["unsupported_reason"] == "暂不支持腾讯题型：upload"
         assert first["display_num"] == 1
         assert second["display_num"] == 2
         assert third["display_num"] == 3

@@ -7,7 +7,7 @@ from surveycore import RunConfig, SubmissionRequest, SurveyClient
 
 
 @pytest.mark.asyncio
-async def test_tencent_parse_and_submit_all_observed_question_types() -> None:
+async def test_tencent_parse_and_submit_all_answerable_question_types() -> None:
     options = [{"id": "o1", "text": "甲"}, {"id": "o2", "text": "乙"}]
     rows = [{"id": "r1", "text": "行一"}, {"id": "r2", "text": "行二"}]
     raw_questions = [
@@ -24,6 +24,8 @@ async def test_tencent_parse_and_submit_all_observed_question_types() -> None:
             "levels": ["一级", "二级"],
             "groups": [["l1", "甲", [["l11", "一"]]], ["l2", "乙", [["l21", "二"]]]],
         },
+        {"type": "star", "star_num": 5},
+        {"type": "description"},
     ]
     questions = [
         {
@@ -52,9 +54,11 @@ async def test_tencent_parse_and_submit_all_observed_question_types() -> None:
                 assert request.headers["x-answer-session"] == "sess"
                 pages = json.loads(request.content)["answer_survey"]["pages"]
                 assert [page["id"] for page in pages] == ["p-1", "p-2"]
-                assert [len(page["questions"]) for page in pages] == [6, 3]
+                assert [len(page["questions"]) for page in pages] == [6, 4]
                 answers = [item for page in pages for item in page["questions"]]
-                assert [(a["id"], a["type"]) for a in answers] == [(q["id"], q["type"]) for q in questions]
+                assert [(a["id"], a["type"]) for a in answers] == [
+                    (q["id"], q["type"]) for q in questions if q["type"] != "description"
+                ]
                 for answer in answers[:3]:
                     assert answer["options"] and all(o["checked"] == 1 for o in answer["options"])
                 assert answers[3]["text"] and answers[7]["text"]
@@ -66,6 +70,7 @@ async def test_tencent_parse_and_submit_all_observed_question_types() -> None:
                 assert (answers[8]["id_list"], answers[8]["text_list"]) in [
                     (["l1", "l11"], ["甲", "一"]), (["l2", "l21"], ["乙", "二"]),
                 ]
+                assert 1 <= int(answers[9]["text"]) <= 5
                 data = {"answer_hash": "accepted"}
             case _:
                 raise AssertionError(endpoint)
@@ -75,8 +80,11 @@ async def test_tencent_parse_and_submit_all_observed_question_types() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         client = SurveyClient(http)
         survey = await client.parse(url)
-        assert all(q.required and not q.unsupported for q in survey.questions)
-        assert survey.questions[-1].option_texts == ("甲 / 一", "乙 / 二")
+        assert [q.provider_type for q in survey.questions] == [q["type"] for q in questions]
+        assert [q.type_code for q in survey.questions] == ["3", "4", "7", "1", "6", "6", "5", "1", "7", "5", "0"]
+        assert all(q.required and not q.unsupported for q in survey.questions[:-1])
+        assert survey.questions[-1].is_description and not survey.questions[-1].unsupported
+        assert survey.questions[8].option_texts == ("甲 / 一", "乙 / 二")
         result = await client.submit(SubmissionRequest(RunConfig(url, reliability_mode=False), survey))
 
     assert result.success, result.error
