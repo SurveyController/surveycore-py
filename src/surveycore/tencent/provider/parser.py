@@ -21,14 +21,10 @@ QQ_SUPPORTED_PROVIDER_TYPES = {
     "star",
     "matrix_radio",
     "matrix_star",
+    "chained_selects",
 }
 QQ_DESCRIPTION_PROVIDER_TYPES = {
     "description",
-}
-_QQ_BLOCKED_RUNTIME_PROVIDER_TYPES = {
-    "nps": "量表",
-    "star": "量表",
-    "matrix_star": "矩阵量表",
 }
 QQ_PROVIDER_TYPE_TO_INTERNAL = {
     "radio": "3",
@@ -40,6 +36,7 @@ QQ_PROVIDER_TYPE_TO_INTERNAL = {
     "star": "5",
     "matrix_radio": "6",
     "matrix_star": "6",
+    "chained_selects": "7",
 }
 _QQ_TITLE_SUFFIX_RE = re.compile(r"(?:[-|｜]\s*)?腾讯问卷.*$", re.IGNORECASE)
 _QQ_URL_RE = re.compile(r"/s\d+/(\d+)/([A-Za-z0-9_-]+)/?$", re.IGNORECASE)
@@ -327,7 +324,6 @@ def _build_qq_parse_result(
     info = _standardize_qq_questions(questions)
     if not info:
         raise RuntimeError(empty_error_message)
-    _raise_if_qq_contains_blocked_runtime_types(info)
     return info, title
 
 
@@ -390,14 +386,46 @@ async def _fetch_qq_survey_via_http(survey_id: str, hash_value: str) -> Tuple[Li
     raise RuntimeError("腾讯问卷 HTTP 解析失败：未获得可用 locale")
 
 
+def _qq_score_labels(question: Mapping[str, Any]) -> List[str]:
+    raw_start = question.get("star_begin_num")
+    start = int(raw_start) if raw_start is not None else (0 if question.get("type") == "nps" else 1)
+    count = int(question.get("star_num") or 0)
+    scores = [str(score) for score in range(start, start + count)]
+    return scores[::-1] if question.get("revert_sort") else scores
+
+
+def _qq_chained_paths(question: Mapping[str, Any]) -> List[Tuple[Tuple[str, ...], Tuple[str, ...]]]:
+    paths: List[Tuple[Tuple[str, ...], Tuple[str, ...]]] = []
+    question_id = question.get("id")
+
+    def visit(groups: Any, ids: Tuple[str, ...], texts: Tuple[str, ...]) -> None:
+        if not isinstance(groups, list) or not groups:
+            raise ValueError(f"腾讯问卷联动题 {question_id} 缺少联动选项")
+        seen: set[str] = set()
+        for group in groups:
+            if not isinstance(group, list) or len(group) not in (2, 3):
+                raise ValueError(f"腾讯问卷联动题 {question_id} 选项节点格式无效")
+            option_id, label = group[:2]
+            if not isinstance(option_id, str) or not option_id.strip() or option_id in seen:
+                raise ValueError(f"腾讯问卷联动题 {question_id} 选项 ID 缺失或重复")
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError(f"腾讯问卷联动题 {question_id} 选项文本无效")
+            seen.add(option_id)
+            path = (ids + (option_id,), texts + (label,))
+            if len(group) == 2:
+                paths.append(path)
+            else:
+                visit(group[2], *path)
+
+    visit(question.get("groups"), (), ())
+    return paths
+
+
 def _build_option_texts(question: Mapping[str, Any], provider_type: str) -> List[str]:
-    if provider_type in {"nps", "star"}:
-        start = int(question.get("star_begin_num") or 0)
-        count = max(0, int(question.get("star_num") or 0))
-        return [str(start + idx) for idx in range(count)]
-    if provider_type == "matrix_star":
-        count = max(0, int(question.get("star_num") or 0))
-        return [str(idx + 1) for idx in range(count)]
+    if provider_type in {"nps", "star", "matrix_star"}:
+        return _qq_score_labels(question)
+    if provider_type == "chained_selects":
+        return [" / ".join(map(_normalize_html_text, texts)) for _, texts in _qq_chained_paths(question)]
     raw_options = question.get("options")
     if not isinstance(raw_options, list):
         return []
@@ -461,10 +489,6 @@ def _build_row_texts(question: Mapping[str, Any]) -> List[str]:
 def _resolve_option_count(question: Mapping[str, Any], provider_type: str, option_texts: List[str]) -> int:
     if provider_type in QQ_DESCRIPTION_PROVIDER_TYPES:
         return 0
-    if provider_type in {"nps", "star"}:
-        return max(len(option_texts), int(question.get("star_num") or 0))
-    if provider_type == "matrix_star":
-        return max(len(option_texts), int(question.get("star_num") or 0))
     if option_texts:
         return len(option_texts)
     raw_options = question.get("options")
@@ -889,6 +913,11 @@ def _standardize_qq_questions(questions: Sequence[Mapping[str, Any]]) -> List[Di
         page_id = str(question.get("page_id") or "").strip()
         page_raw = question.get("page")
         page = page_map.get((page_id, str(page_raw or "").strip()), 1)
+        if provider_type == "chained_selects":
+            levels = question.get("levels")
+            if not isinstance(levels, list) or not levels or not all(isinstance(label, str) for label in levels):
+                raise ValueError(f"腾讯问卷第{idx}题缺少联动级别标题")
+            page_raw = {"page": page_raw, "levels": levels.copy()}
         row_texts = _build_row_texts(question)
         option_texts = _build_option_texts(question, provider_type)
         fillable_options = _build_fillable_option_indices(question, provider_type)
@@ -896,11 +925,7 @@ def _standardize_qq_questions(questions: Sequence[Mapping[str, Any]]) -> List[Di
         is_description = provider_type in QQ_DESCRIPTION_PROVIDER_TYPES
         type_code = QQ_PROVIDER_TYPE_TO_INTERNAL.get(provider_type, "0") if not is_description else "0"
         supported = provider_type in QQ_SUPPORTED_PROVIDER_TYPES or is_description
-        blocked_runtime_label = _QQ_BLOCKED_RUNTIME_PROVIDER_TYPES.get(provider_type)
-        if blocked_runtime_label:
-            unsupported_reason = f"当前版本暂不支持腾讯问卷{blocked_runtime_label}题，请改用 v3.2.2 旧版本"
-        else:
-            unsupported_reason = "" if supported else f"暂不支持腾讯题型：{provider_type or 'unknown'}"
+        unsupported_reason = "" if supported else f"暂不支持腾讯题型：{provider_type or 'unknown'}"
         is_text_like = provider_type in {"text", "textarea"} and not is_description
         is_rating = provider_type in {"nps", "star"} and not is_description
         multi_min_limit = question.get("min_length") if provider_type == "checkbox" else None
@@ -947,35 +972,12 @@ def _standardize_qq_questions(questions: Sequence[Mapping[str, Any]]) -> List[Di
             "provider_page_id": page_id,
             "provider_type": provider_type,
             "provider_page_raw": page_raw,
-            "unsupported": bool((not supported) or blocked_runtime_label),
+            "unsupported": not supported,
             "unsupported_reason": unsupported_reason,
             "required": bool(question.get("required", False)),
         })
     _attach_qq_logic_metadata(questions, normalized)
     return _assign_visible_display_numbers(_merge_same_page_descriptions_into_questions(normalized))
-
-
-def _raise_if_qq_contains_blocked_runtime_types(info: List[Dict[str, Any]]) -> None:
-    blocked_questions: List[str] = []
-    for item in info:
-        provider_type = str(item.get("provider_type") or "").strip().lower()
-        type_label = _QQ_BLOCKED_RUNTIME_PROVIDER_TYPES.get(provider_type)
-        if not type_label:
-            continue
-        question_num = item.get("display_num")
-        if question_num in (None, ""):
-            question_num = item.get("num")
-        title = _normalize_html_text(item.get("title") or "") or "未命名题目"
-        blocked_questions.append(f"第 {question_num} 题：{title}（{type_label}）")
-    if not blocked_questions:
-        return
-    detail = "\n".join(blocked_questions[:8])
-    if len(blocked_questions) > 8:
-        detail += f"\n其余 {len(blocked_questions) - 8} 道已省略"
-    raise RuntimeError(
-        "腾讯问卷当前版本暂不支持量表、矩阵量表题，请改用 v3.2.2 旧版本：\n"
-        f"{detail}"
-    )
 
 
 async def parse_qq_survey(url: str) -> Tuple[List[Dict[str, Any]], str]:
@@ -989,10 +991,7 @@ async def parse_qq_survey(url: str) -> Tuple[List[Dict[str, Any]], str]:
         _raise_if_qq_login_required(exc)
         logging.exception("腾讯问卷 HTTP 解析失败，url=%r", url)
         message = str(exc or "").strip() or "腾讯问卷 HTTP 解析失败"
-        if not (
-            message.startswith("腾讯问卷 HTTP 解析失败：")
-            or message.startswith("腾讯问卷当前版本暂不支持")
-        ):
+        if not message.startswith("腾讯问卷 HTTP 解析失败："):
             message = f"腾讯问卷 HTTP 解析失败：{message}"
         raise RuntimeError(message) from exc
 

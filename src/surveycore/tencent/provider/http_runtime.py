@@ -30,6 +30,8 @@ from surveycore.tencent.provider.parser import (
     _build_qq_survey_page_url,
     _ensure_qq_api_ok,
     _extract_qq_identifiers,
+    _qq_chained_paths,
+    _qq_score_labels,
     _request_qq_api,
     _standardize_qq_questions,
 )
@@ -174,22 +176,7 @@ def _option_items(raw_question: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     options = raw_question.get("options")
     if isinstance(options, list):
         return [item for item in options if isinstance(item, Mapping)]
-
-    provider_type = str(raw_question.get("type") or "").strip()
-    if provider_type not in {"star", "nps", "matrix_star"}:
-        return []
-    try:
-        count = int(raw_question.get("star_num") or 0)
-    except Exception:
-        count = 0
-    if count <= 0:
-        return []
-    raw_start = raw_question.get("star_begin_num")
-    try:
-        start = int(raw_start) if raw_start is not None else (0 if provider_type == "nps" else 1)
-    except Exception:
-        start = 0 if provider_type == "nps" else 1
-    return [{"id": "", "text": str(start + index)} for index in range(count)]
+    return []
 
 
 def _extract_option_blank_id(value: Any, *, depth: int = 0) -> str:
@@ -225,7 +212,7 @@ def _option_blank_answer(raw_option: Mapping[str, Any], fill_text: str) -> dict[
         blank_id = str(raw_option.get("id") or "").strip()
     return {
         "id": blank_id,
-        "text": str(fill_text or "").strip(),
+        "value": str(fill_text or "").strip(),
     }
 
 
@@ -238,36 +225,16 @@ def _option_answer(raw_option: Mapping[str, Any], *, checked: bool) -> dict[str,
 
 
 def _score_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
-    provider_type = str(raw_question.get("type") or "").strip()
-    option_items = _option_items(raw_question)
-    if not option_items:
-        raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题没有可提交的评分选项")
-    selected_index: int | None = action.scalar_value
-    if selected_index is None and action.selected_indices:
-        selected_index = int(action.selected_indices[0])
-    if selected_index is None:
-        normalized_index = -1
-    else:
-        try:
-            normalized_index = int(selected_index)
-        except Exception:
-            normalized_index = -1
-    if normalized_index < 0 or normalized_index >= len(option_items):
+    scores = _qq_score_labels(raw_question)
+    index = action.scalar_value
+    if index is None and action.selected_indices:
+        index = action.selected_indices[0]
+    if index is None or not 0 <= index < len(scores):
         raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题没有生成评分答案")
-    selected_option = option_items[normalized_index]
-    question_id = str(raw_question.get("id") or action.question_id).strip()
-    score_value = str(selected_option.get("text") or "").strip()
-    if not score_value:
-        score_value = str(selected_option.get("id") or "").strip()
-    if not score_value:
-        score_value = str(normalized_index)
-    answer_id = question_id
-    if provider_type in {"star", "nps"} and score_value:
-        answer_id = f"{question_id}-{score_value}"
     return {
-        "id": answer_id,
-        "type": provider_type,
-        "answer": score_value,
+        "id": str(raw_question.get("id") or action.question_id).strip(),
+        "type": raw_question["type"],
+        "text": scores[index],
     }
 
 
@@ -275,14 +242,11 @@ def _choice_question_answer(raw_question: Mapping[str, Any], action: AnswerActio
     selected = {int(item) for item in action.selected_indices}
     fill_by_index = option_fill_text_map(action.option_fill_texts)
     blanks: list[dict[str, str]] = []
-    options = [
-        _option_answer(option, checked=index in selected)
-        for index, option in enumerate(_option_items(raw_question))
-    ]
-    raw_options = _option_items(raw_question)
-    for index, option in enumerate(raw_options):
+    options: list[dict[str, Any]] = []
+    for index, option in enumerate(_option_items(raw_question)):
         if index not in selected:
             continue
+        options.append(_option_answer(option, checked=True))
         fill_text = fill_by_index.get(index, "")
         if not fill_text:
             continue
@@ -304,63 +268,56 @@ def _text_question_answer(raw_question: Mapping[str, Any], action: AnswerAction)
     }
 
 
-def _matrix_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> list[dict[str, Any]]:
+def _matrix_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
     rows = raw_question.get("sub_titles")
-    normalized_answers: list[dict[str, Any]] = []
     question_id = str(raw_question.get("id") or action.question_id).strip()
-    provider_type = str(raw_question.get("type") or "").strip()
-    if isinstance(rows, list):
-        option_template = _option_items(raw_question)
-        if not option_template:
-            raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题没有可提交的矩阵列")
-        for row_index, row in enumerate(rows):
-            if not isinstance(row, Mapping):
-                continue
-            selected_index = action.matrix_indices[row_index] if row_index < len(action.matrix_indices) else -1
-            try:
-                selected_index = int(selected_index)
-            except Exception:
-                selected_index = -1
-            if selected_index < 0 or selected_index >= len(option_template):
-                raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题第{row_index + 1}行没有生成矩阵答案")
-            selected_option = option_template[selected_index]
-            row_id = str(row.get("id") or "").strip()
-            if provider_type == "matrix_radio":
-                option_id = str(selected_option.get("id") or "").strip()
-                if not option_id:
-                    raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题第{row_index + 1}行缺少矩阵列 id")
-                if row_id:
-                    composite_id = f"{question_id}_{row_id}_{option_id}"
-                else:
-                    composite_id = f"{question_id}_{option_id}"
-                answer_value = "on"
-            else:
-                score_value = str(selected_option.get("text") or "").strip()
-                if not score_value:
-                    score_value = str(selected_index + 1)
-                if row_id:
-                    composite_id = f"{question_id}-{row_id}-{score_value}"
-                else:
-                    composite_id = f"{question_id}-{score_value}"
-                answer_value = "on"
-            normalized_answers.append(
-                {
-                    "id": composite_id,
-                    "type": provider_type,
-                    "answer": answer_value,
-                }
-            )
-    if not normalized_answers:
-        raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题没有生成矩阵答案")
-    return normalized_answers
+    provider_type = raw_question["type"]
+    label = f"腾讯问卷第{action.question_num}题"
+    options = _option_items(raw_question) if provider_type == "matrix_radio" else []
+    scores = _qq_score_labels(raw_question) if provider_type == "matrix_star" else []
+    if not options and not scores:
+        raise RuntimeError(f"{label}没有可提交的矩阵列")
+    if not isinstance(rows, list) or not rows or len(rows) != len(action.matrix_indices):
+        raise RuntimeError(f"{label}没有生成完整的矩阵答案")
+
+    groups: list[dict[str, Any]] = []
+    for row_index, (row, index) in enumerate(zip(rows, action.matrix_indices, strict=True), 1):
+        row_label = f"{label}第{row_index}行"
+        if not isinstance(row, Mapping) or not isinstance(row.get("id"), str) or not row["id"].strip():
+            raise RuntimeError(f"{row_label}缺少矩阵行 id")
+        if not 0 <= index < (len(options) or len(scores)):
+            raise RuntimeError(f"{row_label}没有生成矩阵答案")
+        if options:
+            option = _option_answer(options[index], checked=True)
+            if not option["id"]:
+                raise RuntimeError(f"{row_label}缺少矩阵列 id")
+            groups.append({"id": row["id"], "options": [option]})
+        else:
+            groups.append({"id": row["id"], "text": scores[index]})
+    return {"id": question_id, "type": provider_type, "groups": groups}
 
 
-def _question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any] | list[dict[str, Any]]:
+def _chained_question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
+    paths = _qq_chained_paths(raw_question)
+    if len(action.selected_indices) != 1 or not 0 <= action.selected_indices[0] < len(paths):
+        raise RuntimeError(f"腾讯问卷第{action.question_num}题没有生成有效的联动选项路径")
+    ids, texts = paths[action.selected_indices[0]]
+    return {
+        "id": str(raw_question.get("id") or action.question_id).strip(),
+        "type": "chained_selects",
+        "id_list": list(ids),
+        "text_list": list(texts),
+    }
+
+
+def _question_answer(raw_question: Mapping[str, Any], action: AnswerAction) -> dict[str, Any]:
     provider_type = str(raw_question.get("type") or "").strip()
     if action.kind == "text" or provider_type in {"text", "textarea", "number"}:
         return _text_question_answer(raw_question, action)
     if provider_type in {"star", "nps"}:
         return _score_question_answer(raw_question, action)
+    if provider_type == "chained_selects":
+        return _chained_question_answer(raw_question, action)
     if action.kind == "matrix" or provider_type.startswith("matrix_"):
         return _matrix_question_answer(raw_question, action)
     return _choice_question_answer(raw_question, action)
@@ -551,10 +508,7 @@ async def brush_qq_http(
             if not page_id:
                 raise RuntimeError(f"腾讯问卷第{int(action.question_num or 0)}题缺少 page_id")
             question_answer = _question_answer(raw_source, action)
-            if isinstance(question_answer, list):
-                page_questions.setdefault(page_id, []).extend(question_answer)
-            else:
-                page_questions.setdefault(page_id, []).append(question_answer)
+            page_questions.setdefault(page_id, []).append(question_answer)
 
         if not page_questions:
             raise RuntimeError("腾讯问卷没有生成可提交答案")

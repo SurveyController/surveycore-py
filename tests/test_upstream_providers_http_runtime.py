@@ -261,14 +261,15 @@ def test_qq_question_answer_builders_cover_choice_text_and_matrix() -> None:
         AnswerAction(question_id="q-16-6ef8", kind="matrix", matrix_indices=(0,)),
     )
 
-    assert cast(dict[str, Any], choice)["options"][1]["checked"] == 1
-    assert cast(dict[str, Any], text)["text"] == "hello"
-    assert matrix == [
-        {"id": "q-16-6ef8_g-101-f3a5_o-101-1d22", "type": "matrix_radio", "answer": "on"}
-    ]
+    assert choice["options"] == [{"id": "o2", "text": "B", "checked": 1}]
+    assert text["text"] == "hello"
+    assert matrix == {
+        "id": "q-16-6ef8", "type": "matrix_radio",
+        "groups": [{"id": "g-101-f3a5", "options": [{"id": "o-101-1d22", "text": "A", "checked": 1}]}],
+    }
 
 
-def test_qq_score_answer_uses_scalar_answer_field_for_nps() -> None:
+def test_qq_score_answer_uses_text_field_and_preserves_zero_for_nps() -> None:
     score = qq_http._question_answer(
         {
             "id": "q-15-a899",
@@ -280,16 +281,16 @@ def test_qq_score_answer_uses_scalar_answer_field_for_nps() -> None:
             question_num=8,
             question_id="q-15-a899",
             kind="choice",
-            selected_indices=(3,),
-            scalar_value=3,
+            selected_indices=(0,),
+            scalar_value=0,
             record_type="score",
         ),
     )
 
     assert score == {
-        "id": "q-15-a899-3",
+        "id": "q-15-a899",
         "type": "nps",
-        "answer": "3",
+        "text": "0",
     }
 
 
@@ -313,8 +314,9 @@ def test_qq_matrix_star_answer_builds_star_options_without_raw_options() -> None
         {
             "id": "q-13-7d39",
             "type": "matrix_star",
-            "star_begin_num": 1,
+            "star_begin_num": 2,
             "star_num": 5,
+            "revert_sort": True,
             "sub_titles": [{"id": "g-101-ae7c", "text": "薪资福利"}],
         },
         AnswerAction(
@@ -326,7 +328,9 @@ def test_qq_matrix_star_answer_builds_star_options_without_raw_options() -> None
         ),
     )
 
-    assert matrix == [{"id": "q-13-7d39-g-101-ae7c-3", "type": "matrix_star", "answer": "on"}]
+    assert matrix == {
+        "id": "q-13-7d39", "type": "matrix_star", "groups": [{"id": "g-101-ae7c", "text": "4"}],
+    }
 
 
 def test_qq_matrix_radio_answer_uses_question_row_id_and_option_id() -> None:
@@ -349,10 +353,26 @@ def test_qq_matrix_radio_answer_uses_question_row_id_and_option_id() -> None:
         ),
     )
 
-    assert matrix == [
-        {"id": "q-16-6ef8_g-101-f3a5_o-102-98ff", "type": "matrix_radio", "answer": "on"},
-        {"id": "q-16-6ef8_g-102-fefa_o-101-1d22", "type": "matrix_radio", "answer": "on"},
-    ]
+    assert matrix == {
+        "id": "q-16-6ef8", "type": "matrix_radio",
+        "groups": [
+            {"id": "g-101-f3a5", "options": [{"id": "o-102-98ff", "text": "一般", "checked": 1}]},
+            {"id": "g-102-fefa", "options": [{"id": "o-101-1d22", "text": "较弱", "checked": 1}]},
+        ],
+    }
+
+
+def test_qq_chained_answer_uses_matching_leaf_ids_and_texts() -> None:
+    raw = {
+        "id": "q-current", "type": "chained_selects",
+        "groups": [["a", "甲", [["a1", "一"]]], ["b", "乙", [["b1", "一"], ["b2", "二"]]]],
+    }
+    action = AnswerAction(question_id="q-old", kind="select", selected_indices=(1,))
+    assert qq_http._question_answer(raw, action) == {
+        "id": "q-current", "type": "chained_selects", "id_list": ["b", "b1"], "text_list": ["乙", "一"],
+    }
+    with pytest.raises(RuntimeError, match="没有生成有效的联动选项路径"):
+        qq_http._question_answer(raw, AnswerAction(question_id="q-current", kind="select", selected_indices=(3,)))
 
 
 def test_qq_matrix_radio_answer_rejects_missing_option_id() -> None:
@@ -1487,8 +1507,6 @@ async def test_qq_http_runtime_skips_description_metadata(monkeypatch) -> None:
             provider_question_id="q-13-7d39",
             provider_type="matrix_star",
             type_code="6",
-            unsupported=True,
-            unsupported_reason="当前版本暂不支持腾讯问卷矩阵量表题，请改用 v3.2.2 旧版本",
             option_texts=["1", "2"],
             row_texts=["专业"],
             options=2,
@@ -1508,7 +1526,8 @@ async def test_qq_http_runtime_skips_description_metadata(monkeypatch) -> None:
                 {
                     "id": "q-13-7d39",
                     "type": "matrix_star",
-                    "options": [{"id": "o1", "text": "1"}, {"id": "o2", "text": "2"}],
+                    "star_begin_num": 1,
+                    "star_num": 2,
                     "sub_titles": [{"id": "g-101-ae7c", "text": "专业"}],
                     "page_id": "p1",
                 },
@@ -1527,20 +1546,22 @@ async def test_qq_http_runtime_skips_description_metadata(monkeypatch) -> None:
 
     async def fake_post(*_args, **kwargs):
         captured.update(kwargs)
-        return _FakeResponse(payload={"code": "OK"})
+        return _FakeResponse(payload={"code": "OK", "data": {"answer_hash": "hash-ok"}})
+
+    async def fake_verify(*_args, **_kwargs):
+        return {"code": "OK", "data": {"answer_session": {"last_answer_id": 1}}}
 
     monkeypatch.setattr(qq_http, "_fetch_submit_source", fake_fetch)
     monkeypatch.setattr(qq_http, "build_answer_action", fake_build_action)
     monkeypatch.setattr(qq_http.http_client, "apost", fake_post)
+    monkeypatch.setattr(qq_http, "_request_qq_api", fake_verify)
 
-    with pytest.raises(
-        RuntimeError,
-        match="腾讯问卷第6题暂不支持：当前版本暂不支持腾讯问卷矩阵量表题，请改用 v3.2.2 旧版本",
-    ):
-        await qq_http.brush_qq_http(config, state)
-
-    assert built_questions == []
-    assert captured == {}
+    assert await qq_http.brush_qq_http(config, state)
+    assert built_questions == [6]
+    assert captured["json"]["answer_survey"]["pages"] == [{
+        "id": "p1",
+        "questions": [{"id": "q-13-7d39", "type": "matrix_star", "groups": [{"id": "g-101-ae7c", "text": "1"}]}],
+    }]
 
 
 @pytest.mark.asyncio
@@ -1558,8 +1579,6 @@ async def test_qq_http_runtime_uses_latest_dynamic_ids_for_score_questions(monke
             provider_type="nps",
             type_code="5",
             is_rating=True,
-            unsupported=True,
-            unsupported_reason="当前版本暂不支持腾讯问卷量表题，请改用 v3.2.2 旧版本",
             options=11,
             rating_max=11,
             option_texts=[str(index) for index in range(11)],
@@ -1589,18 +1608,19 @@ async def test_qq_http_runtime_uses_latest_dynamic_ids_for_score_questions(monke
 
     async def fake_post(*_args, **kwargs):
         captured.update(kwargs)
-        return _FakeResponse(payload={"code": "OK"})
+        return _FakeResponse(payload={"code": "OK", "data": {"answer_hash": "hash-ok"}})
+
+    async def fake_verify(*_args, **_kwargs):
+        return {"code": "OK", "data": {"answer_session": {"last_answer_id": 1}}}
 
     monkeypatch.setattr(qq_http, "_fetch_submit_source", fake_fetch)
     monkeypatch.setattr(qq_http.http_client, "apost", fake_post)
+    monkeypatch.setattr(qq_http, "_request_qq_api", fake_verify)
 
-    with pytest.raises(
-        RuntimeError,
-        match="腾讯问卷第8题暂不支持：当前版本暂不支持腾讯问卷量表题，请改用 v3.2.2 旧版本",
-    ):
-        await qq_http.brush_qq_http(config, state)
-
-    assert captured == {}
+    assert await qq_http.brush_qq_http(config, state)
+    assert captured["json"]["answer_survey"]["pages"] == [{
+        "id": "p1", "questions": [{"id": "q-15-new", "type": "nps", "text": "3"}],
+    }]
 
 
 @pytest.mark.asyncio
@@ -1989,9 +2009,8 @@ def test_qq_choice_payload_includes_option_fill_blanks() -> None:
         action,
     )
 
-    answer_dict = cast(dict[str, Any], answer)
-    assert answer_dict["blanks"] == [{"id": "fillblank-1", "text": "补充信息"}]
-    assert answer_dict["options"][1]["checked"] == 1
+    assert answer["blanks"] == [{"id": "fillblank-1", "value": "补充信息"}]
+    assert answer["options"] == [{"id": "o2", "text": "其他 {fillblank-1}", "checked": 1}]
 
 
 @pytest.mark.asyncio

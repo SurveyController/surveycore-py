@@ -188,10 +188,8 @@ class TestTencentParser:
         assert second["is_rating"]
         assert second["option_texts"] == ["3", "4", "5", "6"]
         assert second["rating_max"] == 4
-        assert second["unsupported"] is True
-        assert (
-            second["unsupported_reason"] == "当前版本暂不支持腾讯问卷量表题，请改用 v3.2.2 旧版本"
-        )
+        assert second["unsupported"] is False
+        assert second["unsupported_reason"] == ""
 
         third = normalized[2]
         assert third["unsupported"]
@@ -200,32 +198,45 @@ class TestTencentParser:
         assert second["display_num"] == 2
         assert third["display_num"] == 3
 
-    def test_build_parse_result_blocks_tencent_score_and_matrix_star_questions(self) -> None:
-        with pytest.raises(RuntimeError, match="请改用 v3.2.2 旧版本"):
-            qq_parser._build_qq_parse_result(
-                [
-                    {
-                        "id": "q1",
-                        "type": "star",
-                        "title": "综合满意度",
-                        "star_begin_num": 1,
-                        "star_num": 5,
-                        "page_id": "p1",
-                        "page": 1,
-                    },
-                    {
-                        "id": "q2",
-                        "type": "matrix_star",
-                        "title": "矩阵满意度",
-                        "sub_titles": [{"text": "服务态度"}],
-                        "star_num": 5,
-                        "page_id": "p1",
-                        "page": 1,
-                    },
-                ],
-                raw_title="腾讯问卷",
-                empty_error_message="empty",
-            )
+    def test_build_parse_result_includes_score_matrix_and_chained_questions(self) -> None:
+        questions, _ = qq_parser._build_qq_parse_result(
+            [
+                {"id": "q1", "type": "nps", "star_begin_num": 0, "star_num": 11, "page": 1024},
+                {
+                    "id": "q2",
+                    "type": "matrix_star",
+                    "sub_titles": [{"text": "服务态度"}],
+                    "star_begin_num": 3,
+                    "star_num": 4,
+                    "revert_sort": True,
+                    "page": 1024,
+                },
+                {
+                    "id": "q3",
+                    "type": "chained_selects",
+                    "levels": ["一级", "二级"],
+                    "groups": [["a", "选项一", [["a1", "子项一"], ["a2", "子项二"]]], ["b", "选项二"]],
+                    "page": 2048,
+                    "required": True,
+                },
+            ],
+            raw_title="腾讯问卷",
+            empty_error_message="empty",
+        )
+        nps, matrix, chained = questions
+        assert not any(q["unsupported"] for q in questions)
+        assert nps["option_texts"] == [str(score) for score in range(11)]
+        assert matrix["option_texts"] == ["6", "5", "4", "3"]
+        assert matrix["row_texts"] == ["服务态度"]
+        assert chained["type_code"] == "7"
+        assert chained["option_texts"] == ["选项一 / 子项一", "选项一 / 子项二", "选项二"]
+        assert chained["provider_page_raw"] == {"page": 2048, "levels": ["一级", "二级"]}
+        assert (chained["options"], chained["page"], chained["required"]) == (3, 2, True)
+
+    @pytest.mark.parametrize("groups", [[], [["a", "A", []]], [["a", "A"], ["a", "B"]]])
+    def test_chained_selects_rejects_unusable_group_data(self, groups) -> None:
+        with pytest.raises(ValueError, match="腾讯问卷联动题 q1"):
+            qq_parser._build_option_texts({"id": "q1", "groups": groups}, "chained_selects")
 
     def test_standardize_qq_questions_marks_description_and_merges_into_next_question(self) -> None:
         description_question = {
