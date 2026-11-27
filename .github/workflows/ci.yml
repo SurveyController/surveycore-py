@@ -48,8 +48,8 @@ jobs:
         run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=80
 
       - name: Run live survey submission regression
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: uv run python tests/live_survey_regression.py
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'tag')
+        run: uv run python tests/test_upstream_live_survey_regression.py
 
   quality:
     name: Quality / Lint, type check, and build
