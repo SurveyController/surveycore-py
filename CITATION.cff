@@ -1,0 +1,10 @@
+cff-version: "1.2.0"
+message: "If you use this software, please cite it using the metadata in this file."
+type: software
+title: "surveycore-py"
+authors:
+  - family-names: "HUNGRY_M0"
+version: "0.2.0"
+date-released: "2026-11-09"
+license: "GPL-3.0-only"
+repository-code: "https://github.com/SurveyController/surveycore-py"

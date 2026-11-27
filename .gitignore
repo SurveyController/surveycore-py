@@ -10,3 +10,4 @@ __pycache__/
 AGENTS.md
 *.code-workspace
 desktop.ini
+/.agents/skills/sync-surveyapi-protocol/
