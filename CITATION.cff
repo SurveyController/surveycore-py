@@ -4,7 +4,7 @@ type: software
 title: "surveycore-py"
 authors:
   - family-names: "HUNGRY_M0"
-version: "0.2.0"
-date-released: "2026-11-09"
+version: "0.3.0"
+date-released: "2026-11-27"
 license: "GPL-3.0-only"
 repository-code: "https://github.com/SurveyController/surveycore-py"
