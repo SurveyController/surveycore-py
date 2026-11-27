@@ -1,0 +1,3 @@
+[submodule "hello-js-reverse-skill"]
+	path = .agents/skills/hello-js-reverse-skill
+	url = https://github.com/WhiteNightShadow/hello_js_reverse_skill.git
